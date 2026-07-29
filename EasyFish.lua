@@ -33,10 +33,16 @@ local DOUBLECLICK_WINDOW = 0.50 -- seconds between the two input presses
 local FISHING_POLE_SUBTYPE = "Fishing Poles" -- TBC 2.5.6 GetItemInfo subtype
 local FISHING_SPELL = "Fishing"
 local BINDING_COMMAND = "CLICK EasyFishSecureButton:LeftButton"
+-- All modes are double-press gated (see DOUBLECLICK_WINDOW). The
+-- `alt-double-right` / `double-right` names are explicit aliases for users
+-- who want the classic v0.3.0 alt+double-right-click feel.
 local BINDING_KEYS = {
     ["alt-f"] = "ALT-F",
+    ["alt-double-f"] = "ALT-F",
     ["alt-right"] = "ALT-BUTTON2",
+    ["alt-double-right"] = "ALT-BUTTON2",
     ["right"] = "BUTTON2",
+    ["double-right"] = "BUTTON2",
 }
 
 local PREFIX = "|cff33b3ffEasyFish|r"
@@ -289,7 +295,7 @@ SlashCmdList["EASYFISH"] = function(msg)
         print("  /ef prefer <name> - move <name> to top of the priority list")
         print("  /ef reset         - restore default lure priority")
         print("  /ef test          - report the next action without arming")
-        print("  /ef binding <mode> - alt-right, alt-f, right, or off")
+        print("  /ef binding <mode> - alt-double-right, alt-double-f, double-right, alt-right, alt-f, right, or off (all modes double-press)")
         print("  /ef debug         - toggle verbose input logging")
         print("  /ef status        - show input binding + arm state")
         return
@@ -309,15 +315,15 @@ SlashCmdList["EASYFISH"] = function(msg)
         return
     end
 
-    if msg == "bind" then msg = "binding alt-right" end
-
+    if msg == "bind" then msg = "binding alt-double-right" end
+    
     local bindingMode = msg:match("^binding%s+(%S+)$")
     if bindingMode and (BINDING_KEYS[bindingMode] or bindingMode == "off") then
         local ok, err = setBindingMode(bindingMode)
         if not ok then
             say(err)
-        elseif bindingMode == "right" then
-            say("binding set to right-click; normal right-click is replaced until you switch modes")
+        elseif bindingMode == "right" or bindingMode == "double-right" then
+            say("binding set to double-right-click; normal right-click is replaced until you switch modes")
         else
             say("binding set to " .. bindingMode)
         end
@@ -325,7 +331,7 @@ SlashCmdList["EASYFISH"] = function(msg)
     end
 
     if msg:match("^binding") then
-        say("usage: /ef binding alt-f|alt-right|right|off")
+        say("usage: /ef binding alt-double-right|alt-double-f|double-right|alt-right|alt-f|right|off")
         return
     end
 

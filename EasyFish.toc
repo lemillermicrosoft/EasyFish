@@ -2,10 +2,11 @@
 ## Title: EasyFish
 ## Notes: Double-press a configurable binding to apply a lure and fish.
 ## Author: GitHub Copilot c/o deehoc
-## Version: 0.3.0
+## Version: 0.3.1
 ## IconTexture: Interface\AddOns\EasyFish\Media\icon.png
 ## SavedVariables: EasyFishDB
 
 EasyFish.lua
+
 
 

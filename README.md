@@ -2,17 +2,19 @@
 
 A tiny quality-of-life addon for fishing in **World of Warcraft: TBC Classic (2.5.6)**.
 
-**Concept:** hold `Alt` and double right-click anywhere in the empty game world, and EasyFish walks you through equipping a fishing pole, applying your preferred lure, and starting to fish — one action per double-click.
+**Concept:** point at the empty game world and double-press your configured binding. EasyFish walks you through equipping a fishing pole, applying your preferred lure, and starting to fish — one action per double-press.
 
 ## Why the double-click and modifier
 
-WoW's protected action APIs (`EquipItemByName`, `UseItemByName`, `CastSpellByName`) only fire when driven by a real hardware click on a secure action button. A plain `WorldFrame` mouse hook doesn't count — that's why the v0.3.0 flow silently failed in-game. EasyFish now uses a `SecureActionButton` bound to `Alt`+right-click. The `Alt` modifier keeps it out of the way of the default right-click camera drag, and the double-click gesture makes it deliberate.
+WoW's protected action APIs (`EquipItemByName`, `UseItemByName`, `CastSpellByName`) only fire when driven by a real hardware event on a secure action button. A plain `WorldFrame` mouse hook doesn't count, and this Classic client consumes `BUTTON2` over empty 3D terrain before an addon can receive it. EasyFish therefore declares `Alt+F` through WoW's static Key Bindings system and routes it to a `SecureActionButton`.
+
+After installing or updating, run `/ef bind` once to assign the default `Alt+right-click` binding. It preserves normal bobber looting and works with click-to-move. You can select another input with `/ef binding alt-f` or `/ef binding right`. Plain right-click replaces WoW's normal camera, interaction, and bobber-looting binding while enabled; switching to another mode restores it. You can also assign **EasyFish → Advance fishing setup** in WoW's Key Bindings UI.
 
 Because a single hardware click can only perform one protected action, the flow spans multiple presses:
 
-1. Alt + double-right-click empty world → equip a fishing pole from bags (if none is equipped).
-2. Alt + double-right-click empty world → apply the top-priority available lure (if the pole has no lure buff).
-3. Alt + double-right-click empty world → cast Fishing.
+1. Double-press the configured binding over empty world → equip a fishing pole from bags (if none is equipped).
+2. Double-press it again → apply the top-priority available lure (if the pole has no lure buff).
+3. Double-press it again → cast Fishing.
 
 If you have no matching lure in bags, step 2 is skipped and step 3 fires directly.
 
@@ -28,7 +30,12 @@ If you have no matching lure in bags, step 2 is skipped and step 3 fires directl
 - `/ef prefer <name>` — move a lure to the top of the priority list.
 - `/ef reset` — restore default TBC lure priority.
 - `/ef test` — report which action the next click would fire, without arming it.
-- `/ef debug` — toggle verbose right-click logging.
+- `/ef bind` — bind the default `Alt` + right-click input.
+- `/ef binding alt-right` — use `Alt` + right-click.
+- `/ef binding alt-f` — use `Alt+F` as a fallback.
+- `/ef binding right` — use right-click and temporarily replace normal right-click behavior.
+- `/ef binding off` — disable EasyFish's input and restore displaced bindings.
+- `/ef debug` — toggle verbose input logging.
 - `/ef status` — show the resolved input binding and secure-button state.
 
 ## Default lure priority

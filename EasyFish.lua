@@ -1,5 +1,5 @@
 -- EasyFish
--- Alt + double right-click in the empty game world to fish.
+-- Double-press the configured binding in the empty game world to fish.
 --
 -- One press advances the next required step:
 --   1. Equip a fishing pole from bags (if none is main-hand equipped).
@@ -10,7 +10,7 @@
 -- UseItemByName, CastSpellByName) are protected: they only fire when driven
 -- by a real hardware click on a SecureActionButton, and each click can only
 -- perform one protected action. So we split the flow across successive
--- Alt+double-right-clicks rather than trying to chain them in one press.
+-- double-taps rather than trying to chain them in one press.
 --
 -- SavedVariable: EasyFishDB
 --   preferredBait: ordered list of lure item names (highest priority first).
@@ -29,12 +29,21 @@ local DEFAULT_BAIT = {
     "Shiny Bauble",
 }
 
-local DOUBLECLICK_WINDOW = 0.50 -- seconds between the two Alt+right-clicks
+local DOUBLECLICK_WINDOW = 0.50 -- seconds between the two input presses
 local FISHING_POLE_SUBTYPE = "Fishing Poles" -- TBC 2.5.6 GetItemInfo subtype
 local FISHING_SPELL = "Fishing"
+local BINDING_COMMAND = "CLICK EasyFishSecureButton:LeftButton"
+local BINDING_KEYS = {
+    ["alt-f"] = "ALT-F",
+    ["alt-right"] = "ALT-BUTTON2",
+    ["right"] = "BUTTON2",
+}
 
 local PREFIX = "|cff33b3ffEasyFish|r"
 local debugEnabled = false
+
+BINDING_HEADER_EASYFISH = "EasyFish"
+_G["BINDING_NAME_" .. BINDING_COMMAND] = "Advance fishing setup"
 
 -------------------------------------------------
 -- Utilities
@@ -46,6 +55,35 @@ end
 
 local function dbg(msg)
     if debugEnabled then say("debug: " .. msg) end
+end
+
+local function setBindingMode(mode)
+    if InCombatLockdown() then
+        return false, "cannot change bindings in combat"
+    end
+
+    EasyFishDB.replacedBindings = EasyFishDB.replacedBindings or {}
+
+    for _, key in pairs(BINDING_KEYS) do
+        if GetBindingAction(key) == BINDING_COMMAND then
+            local previous = EasyFishDB.replacedBindings[key]
+            SetBinding(key, previous ~= "" and previous or nil)
+            EasyFishDB.replacedBindings[key] = nil
+        end
+    end
+
+    local key = BINDING_KEYS[mode]
+    if key then
+        local previous = GetBindingAction(key)
+        EasyFishDB.replacedBindings[key] = previous or ""
+        if not SetBindingClick(key, "EasyFishSecureButton", "LeftButton") then
+            return false, "could not bind " .. key
+        end
+    end
+
+    EasyFishDB.bindingMode = mode
+    SaveBindings(GetCurrentBindingSet())
+    return true
 end
 
 local function itemSubType(link)
@@ -101,10 +139,6 @@ end
 
 local function isEmptyWorldClick()
     if UnitExists("mouseover") then return false, "cursor is over a unit" end
-    local focus = GetMouseFocus()
-    if focus and focus ~= WorldFrame then
-        return false, "cursor is over a UI frame"
-    end
     if SpellIsTargeting and SpellIsTargeting() then
         return false, "spell is targeting"
     end
@@ -116,8 +150,8 @@ end
 -------------------------------------------------
 --
 -- Returns (type, value, message) tuple:
---   type  = "item" | "spell" | nil (no-op)
---   value = item name or spell name
+--   type  = "item" | "macro" | "spell" | nil (no-op)
+--   value = item name, macro text, or spell name
 --   message = optional user-facing chat line to print AFTER the click
 --
 -- The secure button's attributes are set from this so the actual protected
@@ -138,7 +172,8 @@ local function nextAction()
         local preferred = db.preferredBait or DEFAULT_BAIT
         local bait = findFirstBaitInBags(preferred)
         if bait then
-            return "item", bait, "applying " .. bait .. " (click again after 5s)"
+            local macroText = "/use " .. bait .. "\n/use 16"
+            return "macro", macroText, "applying " .. bait .. " (click again after 5s)"
         end
         -- No lure available: fall through to fishing.
         return "spell", FISHING_SPELL, "no lure in bags; casting Fishing"
@@ -148,11 +183,12 @@ local function nextAction()
 end
 
 -------------------------------------------------
--- Secure action button + Alt+double-right-click gate
+-- Secure action button + double-input gate
 -------------------------------------------------
 
 local button = CreateFrame("Button", "EasyFishSecureButton", UIParent, "SecureActionButtonTemplate")
-button:RegisterForClicks("AnyUp") -- only "LeftButton" is dispatched via SetOverrideBindingClick
+button:SetAttribute("useOnKeyDown", false)
+button:RegisterForClicks("AnyUp", "AnyDown")
 button:Hide() -- invisible; we drive it via the binding override
 button:Show() -- must be shown for RegisterForClicks to route through
 
@@ -162,6 +198,7 @@ local pendingMessage = nil
 local function disarmButton()
     button:SetAttribute("type", nil)
     button:SetAttribute("item", nil)
+    button:SetAttribute("macrotext", nil)
     button:SetAttribute("spell", nil)
     pendingMessage = nil
 end
@@ -189,7 +226,7 @@ button:SetScript("PreClick", function(self)
         -- First click of the pair: register the timestamp but do NOT arm.
         disarmButton()
         lastArmedClick = now
-        dbg("first Alt+right-click")
+        dbg("first input press")
         return
     end
 
@@ -202,9 +239,13 @@ button:SetScript("PreClick", function(self)
         return
     end
     button:SetAttribute("type", actionType)
-    button:SetAttribute(actionType, value)
+    if actionType == "macro" then
+        button:SetAttribute("macrotext", value)
+    else
+        button:SetAttribute(actionType, value)
+    end
     pendingMessage = msg
-    dbg("armed " .. actionType .. "=" .. tostring(value))
+    dbg("armed " .. actionType .. "=" .. tostring(value):gsub("\n", "; "))
 end)
 
 button:SetScript("PostClick", function(self)
@@ -214,12 +255,11 @@ button:SetScript("PostClick", function(self)
 end)
 
 -------------------------------------------------
--- Load / SavedVariables / binding
+-- Load / SavedVariables
 -------------------------------------------------
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
-loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
         EasyFishDB = EasyFishDB or {}
@@ -229,11 +269,8 @@ loader:SetScript("OnEvent", function(self, event, arg1)
                 EasyFishDB.preferredBait[i] = v
             end
         end
-    elseif event == "PLAYER_LOGIN" then
-        -- Route Alt+RightButton to a LeftButton click on our secure button.
-        -- Using an *override* binding keeps user keybinds intact and survives
-        -- action-bar swaps; it's cleared at logout automatically.
-        SetOverrideBindingClick(button, true, "ALT-BUTTON2", button:GetName(), "LeftButton")
+        EasyFishDB.bindingMode = EasyFishDB.bindingMode or "alt-right"
+        self:UnregisterEvent("ADDON_LOADED")
     end
 end)
 
@@ -252,16 +289,43 @@ SlashCmdList["EASYFISH"] = function(msg)
         print("  /ef prefer <name> - move <name> to top of the priority list")
         print("  /ef reset         - restore default lure priority")
         print("  /ef test          - report the next action without arming")
-        print("  /ef debug         - toggle verbose right-click logging")
+        print("  /ef binding <mode> - alt-right, alt-f, right, or off")
+        print("  /ef debug         - toggle verbose input logging")
         print("  /ef status        - show input binding + arm state")
         return
     end
 
     if msg == "status" then
-        local action = GetBindingAction("ALT-BUTTON2", true)
-        say("Alt+right-click binding: " .. ((action ~= "" and action) or "not registered"))
+        local keyboardAction = GetBindingAction("ALT-F", true)
+        local altRightAction = GetBindingAction("ALT-BUTTON2", true)
+        local rightAction = GetBindingAction("BUTTON2", true)
+        say("binding mode: " .. ((EasyFishDB and EasyFishDB.bindingMode) or "unknown"))
+        say("Alt+F binding: " .. ((keyboardAction ~= "" and keyboardAction) or "not registered"))
+        say("Alt+right binding: " .. ((altRightAction ~= "" and altRightAction) or "not registered"))
+        say("right binding: " .. ((rightAction ~= "" and rightAction) or "not registered"))
         say("secure button shown: " .. (button:IsShown() and "yes" or "no"))
+        say("secure button key phase: " .. (button:GetAttribute("useOnKeyDown") and "down" or "up"))
         say("in combat: " .. (InCombatLockdown() and "yes" or "no"))
+        return
+    end
+
+    if msg == "bind" then msg = "binding alt-right" end
+
+    local bindingMode = msg:match("^binding%s+(%S+)$")
+    if bindingMode and (BINDING_KEYS[bindingMode] or bindingMode == "off") then
+        local ok, err = setBindingMode(bindingMode)
+        if not ok then
+            say(err)
+        elseif bindingMode == "right" then
+            say("binding set to right-click; normal right-click is replaced until you switch modes")
+        else
+            say("binding set to " .. bindingMode)
+        end
+        return
+    end
+
+    if msg:match("^binding") then
+        say("usage: /ef binding alt-f|alt-right|right|off")
         return
     end
 

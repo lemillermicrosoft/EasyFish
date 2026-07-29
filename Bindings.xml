@@ -1,0 +1,3 @@
+<Bindings>
+    <Binding name="CLICK EasyFishSecureButton:LeftButton" header="EASYFISH" default="ALT-BUTTON2" />
+</Bindings>

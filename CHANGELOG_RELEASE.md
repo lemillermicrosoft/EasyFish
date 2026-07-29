@@ -1,7 +1,7 @@
-﻿# v0.3.1
+﻿# v0.4.0
 
-Changes since v0.3.0.
+Changes since v0.3.1.
 
-## Fixes
-- rebuild alt+double-right-click flow on SecureActionButton (#4) (#5) (53c8a69)
+## Features
+- add FishingBuddy-style double-right mode via late-bound override (#6) (#7) (4fe3de6)
 

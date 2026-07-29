@@ -1,10 +1,7 @@
-﻿# v0.2.0
+﻿# v0.3.0
 
-Initial tagged release.
+Changes since v0.2.0.
 
 ## Features
-- initial easy_fish scaffold (f8aaf1d)
-
-## Other
-- add CurseForge config with project ID 1629924 (a2ae9c6)
+- double right-click in empty world applies bait to fishing pole (#3) (a49764d)
 

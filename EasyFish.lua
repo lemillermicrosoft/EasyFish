@@ -33,22 +33,26 @@ local DOUBLECLICK_WINDOW = 0.50 -- seconds between the two input presses
 local FISHING_POLE_SUBTYPE = "Fishing Poles" -- TBC 2.5.6 GetItemInfo subtype
 local FISHING_SPELL = "Fishing"
 local BINDING_COMMAND = "CLICK EasyFishSecureButton:LeftButton"
--- All modes are double-press gated (see DOUBLECLICK_WINDOW). The
--- `alt-double-right` / `alt-double-f` names are explicit aliases for users
--- who want the classic v0.3.0 alt+double-right-click feel.
+-- Each mode declares its key + whether it requires a double press. Modes
+-- with names containing `-double-` need two taps within DOUBLECLICK_WINDOW;
+-- the plain modified modes fire on a single press.
 --
 -- Note: plain BUTTON2 (right-click) is intentionally NOT offered as a mode.
 -- Binding it to our secure button hijacks WoW's native right-click, which
 -- breaks bobber looting, camera turn, and left+right run-forward. Modes
 -- must include a modifier (Alt / Shift / Ctrl) or use a non-mouse key.
-local BINDING_KEYS = {
-    ["alt-f"] = "ALT-F",
-    ["alt-double-f"] = "ALT-F",
-    ["alt-right"] = "ALT-BUTTON2",
-    ["alt-double-right"] = "ALT-BUTTON2",
-    ["shift-right"] = "SHIFT-BUTTON2",
-    ["shift-double-right"] = "SHIFT-BUTTON2",
+local BINDING_MODES = {
+    ["alt-f"]              = { key = "ALT-F",          double = false },
+    ["alt-double-f"]       = { key = "ALT-F",          double = true  },
+    ["alt-right"]          = { key = "ALT-BUTTON2",    double = false },
+    ["alt-double-right"]   = { key = "ALT-BUTTON2",    double = true  },
+    ["shift-right"]        = { key = "SHIFT-BUTTON2",  double = false },
+    ["shift-double-right"] = { key = "SHIFT-BUTTON2",  double = true  },
 }
+
+-- Back-compat table of just the keys (used for binding cleanup).
+local BINDING_KEYS = {}
+for name, info in pairs(BINDING_MODES) do BINDING_KEYS[name] = info.key end
 
 local PREFIX = "|cff33b3ffEasyFish|r"
 local debugEnabled = false
@@ -236,16 +240,24 @@ button:SetScript("PreClick", function(self)
     end
 
     local now = GetTime()
-    if (now - lastArmedClick) > DOUBLECLICK_WINDOW then
-        -- First click of the pair: register the timestamp but do NOT arm.
-        disarmButton()
-        lastArmedClick = now
-        dbg("first input press")
-        return
+    local currentMode = EasyFishDB and EasyFishDB.bindingMode
+    local requiresDouble = currentMode and BINDING_MODES[currentMode] and BINDING_MODES[currentMode].double
+
+    if requiresDouble then
+        if (now - lastArmedClick) > DOUBLECLICK_WINDOW then
+            -- First click of the pair: register the timestamp but do NOT arm.
+            disarmButton()
+            lastArmedClick = now
+            dbg("first input press")
+            return
+        end
+        -- Second click within window: fall through to arm.
+        lastArmedClick = 0
+    else
+        -- Single-press mode: arm on every qualifying click.
+        lastArmedClick = 0
     end
 
-    -- Second click within window: arm the next action.
-    lastArmedClick = 0
     local actionType, value, msg = nextAction()
     if not actionType then
         disarmButton()
@@ -307,7 +319,8 @@ SlashCmdList["EASYFISH"] = function(msg)
         print("  /ef prefer <name> - move <name> to top of the priority list")
         print("  /ef reset         - restore default lure priority")
         print("  /ef test          - report the next action without arming")
-        print("  /ef binding <mode> - alt-double-right, alt-double-f, shift-double-right, or off (all modes double-press; plain right-click intentionally not supported — it would break looting and camera)")
+        print("  /ef binding <mode> - alt-right, alt-double-right, alt-f, alt-double-f, shift-right, shift-double-right, or off")
+        print("    (plain modes fire on a single press; -double- modes require two taps within 0.5s)")
         print("  /ef debug         - toggle verbose input logging")
         print("  /ef status        - show input binding + arm state")
         return
@@ -335,7 +348,8 @@ SlashCmdList["EASYFISH"] = function(msg)
         if not ok then
             say(err)
         elseif bindingMode == "shift-right" or bindingMode == "shift-double-right" then
-            say("binding set to shift+double-right-click")
+            local kind = (BINDING_MODES[bindingMode] and BINDING_MODES[bindingMode].double) and "double-" or ""
+            say("binding set to shift+" .. kind .. "right-click")
         else
             say("binding set to " .. bindingMode)
         end
@@ -343,7 +357,7 @@ SlashCmdList["EASYFISH"] = function(msg)
     end
 
     if msg:match("^binding") then
-        say("usage: /ef binding alt-double-right|alt-double-f|shift-double-right|off")
+        say("usage: /ef binding alt-right|alt-double-right|alt-f|alt-double-f|shift-right|shift-double-right|off")
         return
     end
 

@@ -231,6 +231,7 @@ button:Show() -- must be shown for RegisterForClicks to route through
 
 local lastArmedClick = 0
 local pendingMessage = nil
+local armedByLateBind = false
 
 local function disarmButton()
     button:SetAttribute("type", nil)
@@ -368,7 +369,6 @@ end
 
 local lateBindFrame = CreateFrame("Frame")
 local lateBindActive = false
-local armedByLateBind = false
 
 local function armLateBindOverride()
     local actionType, value, msg = nextAction()

@@ -194,7 +194,10 @@ end
 
 local button = CreateFrame("Button", "EasyFishSecureButton", UIParent, "SecureActionButtonTemplate")
 button:SetAttribute("useOnKeyDown", false)
-button:RegisterForClicks("AnyUp", "AnyDown")
+-- IMPORTANT: register only one phase. AnyUp+AnyDown makes a single physical
+-- press fire PreClick twice (down, then up), which the double-press gate
+-- would misread as a legitimate double-click.
+button:RegisterForClicks("AnyUp")
 button:Hide() -- invisible; we drive it via the binding override
 button:Show() -- must be shown for RegisterForClicks to route through
 

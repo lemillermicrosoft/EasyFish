@@ -8,7 +8,17 @@ A tiny quality-of-life addon for fishing in **World of Warcraft: TBC Classic (2.
 
 WoW's protected action APIs (`EquipItemByName`, `UseItemByName`, `CastSpellByName`) only fire when driven by a real hardware event on a secure action button. A plain `WorldFrame` mouse hook doesn't count, and this Classic client consumes `BUTTON2` over empty 3D terrain before an addon can receive it. EasyFish therefore declares `Alt+F` through WoW's static Key Bindings system and routes it to a `SecureActionButton`.
 
-After installing or updating, run `/ef bind` once to assign the default `Alt+right-click` binding. It preserves normal bobber looting and works with click-to-move. You can select another input with `/ef binding alt-f` or `/ef binding right`. Plain right-click replaces WoW's normal camera, interaction, and bobber-looting binding while enabled; switching to another mode restores it. You can also assign **EasyFish → Advance fishing setup** in WoW's Key Bindings UI.
+After installing or updating, run `/ef bind` once to assign the default `Alt+right-click` binding, or use the new plain `double-right` mode which does not require a modifier. `double-right` uses a *late-bound override*: a `GLOBAL_MOUSE_DOWN` handler only registers `BUTTON2` on the secure button for the single synthetic click that fires after a valid double-tap on empty world; it is cleared immediately after via a restricted `SecureHandlerWrapScript` snippet. That means normal right-click (camera turn, bobber looting, left+right run-forward) is untouched at all other times. `double-right` is the default for new installs; existing users keep whatever mode they had.
+
+Switch modes with `/ef binding <mode>`:
+
+- `double-right` — plain double-right-click, late-bound override (default for new installs).
+- `alt-right` / `alt-double-right` — `Alt` + right-click, single or double press.
+- `alt-f` / `alt-double-f` — `Alt+F` keyboard fallback.
+- `shift-right` / `shift-double-right` — `Shift` + right-click.
+- `off` — disable EasyFish's input and restore displaced bindings.
+
+You can also assign **EasyFish → Advance fishing setup** in WoW's Key Bindings UI.
 
 Because a single hardware click can only perform one protected action, the flow spans multiple presses:
 
@@ -30,10 +40,10 @@ If you have no matching lure in bags, step 2 is skipped and step 3 fires directl
 - `/ef prefer <name>` — move a lure to the top of the priority list.
 - `/ef reset` — restore default TBC lure priority.
 - `/ef test` — report which action the next click would fire, without arming it.
-- `/ef bind` — bind the default `Alt` + right-click input.
+- `/ef binding double-right` — plain double-right-click via a late-bound override (default).
 - `/ef binding alt-right` — use `Alt` + right-click.
 - `/ef binding alt-f` — use `Alt+F` as a fallback.
-- `/ef binding right` — use right-click and temporarily replace normal right-click behavior.
+- `/ef binding shift-right` — use `Shift` + right-click.
 - `/ef binding off` — disable EasyFish's input and restore displaced bindings.
 - `/ef debug` — toggle verbose input logging.
 - `/ef status` — show the resolved input binding and secure-button state.

@@ -30,17 +30,29 @@ local DEFAULT_BAIT = {
 }
 
 local DOUBLECLICK_WINDOW = 0.50 -- seconds between the two input presses
+local LATEBIND_DOUBLECLICK_MIN = 0.05 -- min gap for late-bind double-click detection
+local LATEBIND_DOUBLECLICK_MAX = 0.40 -- max gap for late-bind double-click detection
 local FISHING_POLE_SUBTYPE = "Fishing Poles" -- TBC 2.5.6 GetItemInfo subtype
 local FISHING_SPELL = "Fishing"
+local FISHING_BOBBER_NAME = "Fishing Bobber" -- enUS tooltip substring; other locales fall back to alt/shift modes
 local BINDING_COMMAND = "CLICK EasyFishSecureButton:LeftButton"
 -- Each mode declares its key + whether it requires a double press. Modes
 -- with names containing `-double-` need two taps within DOUBLECLICK_WINDOW;
 -- the plain modified modes fire on a single press.
 --
--- Note: plain BUTTON2 (right-click) is intentionally NOT offered as a mode.
--- Binding it to our secure button hijacks WoW's native right-click, which
--- breaks bobber looting, camera turn, and left+right run-forward. Modes
--- must include a modifier (Alt / Shift / Ctrl) or use a non-mouse key.
+-- Note: plain BUTTON2 (right-click) as a *static* binding is intentionally
+-- NOT offered. Binding BUTTON2 to our secure button hijacks WoW's native
+-- right-click, which breaks bobber looting, camera turn, and left+right
+-- run-forward. Modifier modes must include Alt / Shift / Ctrl or use a
+-- non-mouse key.
+--
+-- The `double-right` mode is special: `lateBind = true` means setBindingMode
+-- does NOT install a static SetBindingClick. Instead, a GLOBAL_MOUSE_DOWN
+-- handler watches for a double-right-click on empty world, and only then
+-- installs a one-shot SetOverrideBindingClick for BUTTON2 which is
+-- immediately cleared in PostClick via SecureHandlerWrapScript. Net effect:
+-- BUTTON2 is bound for exactly one synthetic click; normal right-click,
+-- camera, bobber loot, and run-forward are untouched at all other times.
 local BINDING_MODES = {
     ["alt-f"]              = { key = "ALT-F",          double = false },
     ["alt-double-f"]       = { key = "ALT-F",          double = true  },
@@ -48,11 +60,15 @@ local BINDING_MODES = {
     ["alt-double-right"]   = { key = "ALT-BUTTON2",    double = true  },
     ["shift-right"]        = { key = "SHIFT-BUTTON2",  double = false },
     ["shift-double-right"] = { key = "SHIFT-BUTTON2",  double = true  },
+    ["double-right"]       = { key = nil,              double = true, lateBind = true },
 }
 
--- Back-compat table of just the keys (used for binding cleanup).
+-- Back-compat table of just the keys (used for binding cleanup). Skips
+-- lateBind modes which have no static key.
 local BINDING_KEYS = {}
-for name, info in pairs(BINDING_MODES) do BINDING_KEYS[name] = info.key end
+for name, info in pairs(BINDING_MODES) do
+    if info.key then BINDING_KEYS[name] = info.key end
+end
 
 local PREFIX = "|cff33b3ffEasyFish|r"
 local debugEnabled = false
@@ -87,7 +103,8 @@ local function setBindingMode(mode)
         end
     end
 
-    local key = BINDING_KEYS[mode]
+    local info = BINDING_MODES[mode]
+    local key = info and info.key
     if key then
         local previous = GetBindingAction(key)
         EasyFishDB.replacedBindings[key] = previous or ""
@@ -95,6 +112,8 @@ local function setBindingMode(mode)
             return false, "could not bind " .. key
         end
     end
+    -- Late-bind modes install no static binding; the GLOBAL_MOUSE_DOWN
+    -- handler wires the override on demand.
 
     EasyFishDB.bindingMode = mode
     SaveBindings(GetCurrentBindingSet())
@@ -212,6 +231,7 @@ button:Show() -- must be shown for RegisterForClicks to route through
 
 local lastArmedClick = 0
 local pendingMessage = nil
+local armedByLateBind = false
 
 local function disarmButton()
     button:SetAttribute("type", nil)
@@ -228,6 +248,28 @@ button:SetScript("PreClick", function(self)
     if InCombatLockdown() then
         disarmButton()
         dbg("in combat, ignoring")
+        return
+    end
+
+    -- Late-bind path: GLOBAL_MOUSE_DOWN handler already gated the
+    -- double-click, ran the empty-world / bobber / channel checks, and set
+    -- the SA button's attributes via armLateBindOverride. All PreClick has
+    -- to do is let Blizzard fire the click. The legacy timing gate below
+    -- would misclassify this as "first input press" and clobber the arm.
+    if armedByLateBind then
+        armedByLateBind = false
+        lastArmedClick = 0
+        dbg("late-bind click passthrough")
+        return
+    end
+
+    -- Belt-and-suspenders: the `double-right` mode is driven entirely by
+    -- the late-bind path above. If we somehow got here in that mode
+    -- (stale override, unexpected click routing), don't apply the legacy
+    -- modifier-mode double-tap gate on top of it.
+    if EasyFishDB and EasyFishDB.bindingMode == "double-right" then
+        disarmButton()
+        dbg("double-right: PreClick without late-bind arm; ignoring")
         return
     end
 
@@ -280,6 +322,143 @@ button:SetScript("PostClick", function(self)
     disarmButton()
 end)
 
+-- Late-bind restricted-environment cleanup: whenever the secure button's
+-- PostClick fires, the restricted snippet clears any override bindings it
+-- currently holds. Paired with SetOverrideBindingClick in the
+-- GLOBAL_MOUSE_DOWN handler below, this makes the BUTTON2 override live
+-- for exactly one synthetic click. Wrapped once at load; safe because
+-- ClearBindings() is a no-op when no override is set.
+SecureHandlerWrapScript(button, "PostClick", button, [[ self:ClearBindings() ]])
+
+-------------------------------------------------
+-- Late-bind (plain double-right-click) mode
+-------------------------------------------------
+--
+-- FishingBuddy-style technique: listen to GLOBAL_MOUSE_DOWN (still on the
+-- hardware-event code path so a protected call scheduled here counts as
+-- user-driven). On a right-button double-press over empty world -- and only
+-- if the cursor is NOT on a fishing bobber and the player is not already
+-- channeling Fishing -- install SetOverrideBindingClick(BUTTON2 ->
+-- EasyFishSecureButton:LeftButton). The same physical press then routes
+-- through the SA button, PreClick arms the action, Blizzard fires the
+-- protected action, and PostClick's SecureHandlerWrapScript snippet clears
+-- the override. Any normal right-click at any other time is unaffected.
+
+local lateBindLastRightDown = 0
+
+local function tooltipOverFishingBobber()
+    -- Peek at the GameTooltip's current lines. If it's showing a Fishing
+    -- Bobber, we're hovering a bobber and must let the native right-click
+    -- pass through so the bite-loot works.
+    if not GameTooltip or not GameTooltip:IsShown() then return false end
+    for i = 1, GameTooltip:NumLines() do
+        local line = _G["GameTooltipTextLeft" .. i]
+        local text = line and line:GetText()
+        if text and text:find(FISHING_BOBBER_NAME, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function playerIsChannelingFishing()
+    if not UnitChannelInfo then return false end
+    local name = UnitChannelInfo("player")
+    return name == FISHING_SPELL
+end
+
+local lateBindFrame = CreateFrame("Frame")
+local lateBindActive = false
+
+local function armLateBindOverride()
+    local actionType, value, msg = nextAction()
+    if not actionType then
+        if msg then say(msg) end
+        return false
+    end
+    button:SetAttribute("type", actionType)
+    if actionType == "macro" then
+        button:SetAttribute("macrotext", value)
+    else
+        button:SetAttribute(actionType, value)
+    end
+    pendingMessage = msg
+    -- Install the one-shot override. PostClick's wrapped snippet will
+    -- ClearBindings() as soon as the click resolves.
+    -- SetOverrideBindingClick is a Blizzard C API that returns nothing;
+    -- do NOT branch on its return value. Earlier code did, always took the
+    -- "failed" branch (because `not nil` is truthy), and discarded the arm.
+    SetOverrideBindingClick(button, true, "BUTTON2", "EasyFishSecureButton", "LeftButton")
+    armedByLateBind = true
+    dbg("late-bind armed " .. actionType .. "=" .. tostring(value):gsub("\n", "; "))
+    return true
+end
+
+lateBindFrame:SetScript("OnEvent", function(self, event, mouseButton)
+    if event ~= "GLOBAL_MOUSE_DOWN" then return end
+    if mouseButton ~= "RightButton" then return end
+    if InCombatLockdown() then return end
+
+    -- Never intercept a right-click on a fishing bobber -- the native
+    -- right-click must loot the bite.
+    if tooltipOverFishingBobber() then
+        lateBindLastRightDown = 0
+        dbg("late-bind: cursor over bobber; ignoring")
+        return
+    end
+
+    -- Skip if we're already channeling Fishing.
+    if playerIsChannelingFishing() then
+        lateBindLastRightDown = 0
+        dbg("late-bind: fishing channel active; ignoring")
+        return
+    end
+
+    -- Empty-world / no-mouseover / no-UI-focus gates. Same rules as PreClick.
+    local isEmpty, reason = isEmptyWorldClick()
+    if not isEmpty then
+        lateBindLastRightDown = 0
+        dbg("late-bind: " .. (reason or "not empty world"))
+        return
+    end
+
+    local now = GetTime()
+    local gap = now - lateBindLastRightDown
+    if gap >= LATEBIND_DOUBLECLICK_MIN and gap <= LATEBIND_DOUBLECLICK_MAX then
+        -- Second press of a double-right within the window: fire.
+        lateBindLastRightDown = 0
+        armLateBindOverride()
+    else
+        -- First press (or gap too long / too short): just record it.
+        lateBindLastRightDown = now
+        dbg("late-bind: first right press")
+    end
+end)
+
+local function setLateBindActive(active)
+    if active == lateBindActive then return end
+    if active then
+        lateBindFrame:RegisterEvent("GLOBAL_MOUSE_DOWN")
+    else
+        lateBindFrame:UnregisterEvent("GLOBAL_MOUSE_DOWN")
+        -- Belt-and-suspenders: clear any lingering override.
+        if not InCombatLockdown() then
+            ClearOverrideBindings(button)
+        end
+    end
+    lateBindActive = active
+end
+
+-- Rewire setBindingMode to also toggle the late-bind listener.
+local _origSetBindingMode = setBindingMode
+setBindingMode = function(mode)
+    local ok, err = _origSetBindingMode(mode)
+    if ok then
+        setLateBindActive(mode == "double-right")
+    end
+    return ok, err
+end
+
 -------------------------------------------------
 -- Load / SavedVariables
 -------------------------------------------------
@@ -295,10 +474,17 @@ loader:SetScript("OnEvent", function(self, event, arg1)
                 EasyFishDB.preferredBait[i] = v
             end
         end
-        EasyFishDB.bindingMode = EasyFishDB.bindingMode or "alt-double-right"
-        -- Migrate previously offered plain-right modes that hijacked BUTTON2.
-        if EasyFishDB.bindingMode == "right" or EasyFishDB.bindingMode == "double-right" then
-            EasyFishDB.bindingMode = "alt-double-right"
+        -- New installs default to double-right (safe late-bind override).
+        -- Existing users keep whatever they had set previously.
+        EasyFishDB.bindingMode = EasyFishDB.bindingMode or "double-right"
+        -- Migrate old plain-`right` mode (which hijacked BUTTON2 statically);
+        -- the new `double-right` mode is the safe late-bind replacement.
+        if EasyFishDB.bindingMode == "right" then
+            EasyFishDB.bindingMode = "double-right"
+        end
+        -- Activate the GLOBAL_MOUSE_DOWN listener if late-bind mode is set.
+        if EasyFishDB.bindingMode == "double-right" then
+            setLateBindActive(true)
         end
         self:UnregisterEvent("ADDON_LOADED")
     end
@@ -319,8 +505,9 @@ SlashCmdList["EASYFISH"] = function(msg)
         print("  /ef prefer <name> - move <name> to top of the priority list")
         print("  /ef reset         - restore default lure priority")
         print("  /ef test          - report the next action without arming")
-        print("  /ef binding <mode> - alt-right, alt-double-right, alt-f, alt-double-f, shift-right, shift-double-right, or off")
-        print("    (plain modes fire on a single press; -double- modes require two taps within 0.5s)")
+        print("  /ef binding <mode> - double-right, alt-right, alt-double-right, alt-f, alt-double-f, shift-right, shift-double-right, or off")
+        print("    (plain-modifier modes fire on a single press; -double- modes require two taps within 0.5s)")
+        print("    (double-right uses a late-bound override so native right-click, camera, and bobber loot still work)")
         print("  /ef debug         - toggle verbose input logging")
         print("  /ef status        - show input binding + arm state")
         return
@@ -331,6 +518,9 @@ SlashCmdList["EASYFISH"] = function(msg)
         local altRightAction = GetBindingAction("ALT-BUTTON2", true)
         local shiftRightAction = GetBindingAction("SHIFT-BUTTON2", true)
         say("binding mode: " .. ((EasyFishDB and EasyFishDB.bindingMode) or "unknown"))
+        if EasyFishDB and EasyFishDB.bindingMode == "double-right" then
+            say("late-bind listener: " .. (lateBindActive and "active" or "inactive"))
+        end
         say("Alt+F binding: " .. ((keyboardAction ~= "" and keyboardAction) or "not registered"))
         say("Alt+right binding: " .. ((altRightAction ~= "" and altRightAction) or "not registered"))
         say("Shift+right binding: " .. ((shiftRightAction ~= "" and shiftRightAction) or "not registered"))
@@ -343,10 +533,12 @@ SlashCmdList["EASYFISH"] = function(msg)
     if msg == "bind" then msg = "binding alt-double-right" end
     
     local bindingMode = msg:match("^binding%s+(%S+)$")
-    if bindingMode and (BINDING_KEYS[bindingMode] or bindingMode == "off") then
+    if bindingMode and (BINDING_MODES[bindingMode] or bindingMode == "off") then
         local ok, err = setBindingMode(bindingMode)
         if not ok then
             say(err)
+        elseif bindingMode == "double-right" then
+            say("binding set to plain double-right-click (late-bound override; native right-click still works)")
         elseif bindingMode == "shift-right" or bindingMode == "shift-double-right" then
             local kind = (BINDING_MODES[bindingMode] and BINDING_MODES[bindingMode].double) and "double-" or ""
             say("binding set to shift+" .. kind .. "right-click")
@@ -357,7 +549,7 @@ SlashCmdList["EASYFISH"] = function(msg)
     end
 
     if msg:match("^binding") then
-        say("usage: /ef binding alt-right|alt-double-right|alt-f|alt-double-f|shift-right|shift-double-right|off")
+        say("usage: /ef binding double-right|alt-right|alt-double-right|alt-f|alt-double-f|shift-right|shift-double-right|off")
         return
     end
 

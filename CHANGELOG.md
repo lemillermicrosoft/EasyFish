@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **feat:** Add FishingBuddy-style plain `double-right` binding mode via a late-bound override. On each right-mouse press, a `GLOBAL_MOUSE_DOWN` handler checks for a double-right within a 0.05–0.40s window over empty world (skipping presses on a fishing bobber tooltip and while already channeling `Fishing`). Only when all guards pass does it call `SetOverrideBindingClick(BUTTON2 → EasyFishSecureButton:LeftButton)`, and `SecureHandlerWrapScript(PostClick, [[ self:ClearBindings() ]])` immediately unbinds it once the synthetic click resolves. Net effect: `BUTTON2` is bound for exactly one synthetic click per valid double-tap, so native right-click, camera turn, left+right run-forward, and bobber loot are untouched at all other times. New installs default to `double-right`; existing users keep their previous mode. (#6)
 - **change:** Make `Alt+right-click` the default because it preserves bobber looting and works with click-to-move.
 - **change:** Drop plain `right` / `double-right` binding modes. Binding `BUTTON2` hijacked WoW's native right-click, which broke bobber looting, camera turn, and left+right run-forward. Use `alt-right` / `alt-double-right`, `alt-f` / `alt-double-f`, or `shift-right` / `shift-double-right` instead. Existing saves are migrated to `alt-double-right`.
 - **change:** Plain-modifier modes (`alt-right`, `alt-f`, `shift-right`) now fire on a **single** press. Only the `-double-` variants require two taps within 0.5s.

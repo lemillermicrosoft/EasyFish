@@ -1,17 +1,21 @@
 -- EasyFish
--- Double right-click in empty world to apply bait to your fishing pole.
+-- Double-press the configured binding in the empty game world to fish.
 --
--- Behavior:
---   * When a fishing pole is equipped in main-hand, double right-clicking
---     empty world (no target, no mouseover) applies your top preferred bait
---     from bags to the pole. Silent no-op if pole not equipped or lure
---     already active.
+-- One press advances the next required step:
+--   1. Equip a fishing pole from bags (if none is main-hand equipped).
+--   2. Apply the top-priority available lure (if the pole has no lure buff).
+--   3. Cast Fishing.
+--
+-- Why a state machine? WoW's "Interface Action" APIs (EquipItemByName,
+-- UseItemByName, CastSpellByName) are protected: they only fire when driven
+-- by a real hardware click on a SecureActionButton, and each click can only
+-- perform one protected action. So we split the flow across successive
+-- double-taps rather than trying to chain them in one press.
 --
 -- SavedVariable: EasyFishDB
---   preferredBait: ordered list of bait item names (highest priority first).
+--   preferredBait: ordered list of lure item names (highest priority first).
 
-local addonName, ns = ...
-EasyFish = ns
+local addonName = ...
 
 -------------------------------------------------
 -- Defaults / constants
@@ -25,10 +29,36 @@ local DEFAULT_BAIT = {
     "Shiny Bauble",
 }
 
-local DOUBLECLICK_WINDOW = 0.30 -- seconds
-local FISHING_POLE_SUBTYPE = "Fishing Poles" -- TBC 2.5.6 GetItemInfo subtype for poles
+local DOUBLECLICK_WINDOW = 0.50 -- seconds between the two input presses
+local FISHING_POLE_SUBTYPE = "Fishing Poles" -- TBC 2.5.6 GetItemInfo subtype
+local FISHING_SPELL = "Fishing"
+local BINDING_COMMAND = "CLICK EasyFishSecureButton:LeftButton"
+-- Each mode declares its key + whether it requires a double press. Modes
+-- with names containing `-double-` need two taps within DOUBLECLICK_WINDOW;
+-- the plain modified modes fire on a single press.
+--
+-- Note: plain BUTTON2 (right-click) is intentionally NOT offered as a mode.
+-- Binding it to our secure button hijacks WoW's native right-click, which
+-- breaks bobber looting, camera turn, and left+right run-forward. Modes
+-- must include a modifier (Alt / Shift / Ctrl) or use a non-mouse key.
+local BINDING_MODES = {
+    ["alt-f"]              = { key = "ALT-F",          double = false },
+    ["alt-double-f"]       = { key = "ALT-F",          double = true  },
+    ["alt-right"]          = { key = "ALT-BUTTON2",    double = false },
+    ["alt-double-right"]   = { key = "ALT-BUTTON2",    double = true  },
+    ["shift-right"]        = { key = "SHIFT-BUTTON2",  double = false },
+    ["shift-double-right"] = { key = "SHIFT-BUTTON2",  double = true  },
+}
+
+-- Back-compat table of just the keys (used for binding cleanup).
+local BINDING_KEYS = {}
+for name, info in pairs(BINDING_MODES) do BINDING_KEYS[name] = info.key end
 
 local PREFIX = "|cff33b3ffEasyFish|r"
+local debugEnabled = false
+
+BINDING_HEADER_EASYFISH = "EasyFish"
+_G["BINDING_NAME_" .. BINDING_COMMAND] = "Advance fishing setup"
 
 -------------------------------------------------
 -- Utilities
@@ -38,92 +68,217 @@ local function say(msg)
     print(PREFIX .. ": " .. msg)
 end
 
-local function isFishingPoleEquipped()
-    local link = GetInventoryItemLink("player", 16) -- 16 = main hand
-    if not link then return false end
-    local _, _, _, _, _, itemType, itemSubType = GetItemInfo(link)
-    if itemSubType == FISHING_POLE_SUBTYPE then return true end
-    -- Fallback: some clients localize "Fishing Poles". Match by localized name via GetAuctionItemSubClasses is overkill;
-    -- just look for "Fishing" in itemSubType as a safety net.
-    if itemSubType and string.find(itemSubType, "Fishing") then return true end
+local function dbg(msg)
+    if debugEnabled then say("debug: " .. msg) end
+end
+
+local function setBindingMode(mode)
+    if InCombatLockdown() then
+        return false, "cannot change bindings in combat"
+    end
+
+    EasyFishDB.replacedBindings = EasyFishDB.replacedBindings or {}
+
+    for _, key in pairs(BINDING_KEYS) do
+        if GetBindingAction(key) == BINDING_COMMAND then
+            local previous = EasyFishDB.replacedBindings[key]
+            SetBinding(key, previous ~= "" and previous or nil)
+            EasyFishDB.replacedBindings[key] = nil
+        end
+    end
+
+    local key = BINDING_KEYS[mode]
+    if key then
+        local previous = GetBindingAction(key)
+        EasyFishDB.replacedBindings[key] = previous or ""
+        if not SetBindingClick(key, "EasyFishSecureButton", "LeftButton") then
+            return false, "could not bind " .. key
+        end
+    end
+
+    EasyFishDB.bindingMode = mode
+    SaveBindings(GetCurrentBindingSet())
+    return true
+end
+
+local function itemSubType(link)
+    if not link then return nil end
+    local _, _, _, _, _, _, subType = GetItemInfo(link)
+    return subType
+end
+
+local function isPoleSubType(subType)
+    if not subType then return false end
+    if subType == FISHING_POLE_SUBTYPE then return true end
+    -- Safety net for localized clients.
+    if string.find(subType, "Fishing") then return true end
     return false
 end
 
-local function hasFishingLureBuff()
-    -- Main-hand weapon enchant slot; second return is expiration ms.
-    local hasMainHandEnchant = GetWeaponEnchantInfo()
-    return hasMainHandEnchant and true or false
+local function equippedPoleName()
+    local link = GetInventoryItemLink("player", 16) -- main hand
+    if not link then return nil end
+    if not isPoleSubType(itemSubType(link)) then return nil end
+    local name = GetItemInfo(link)
+    return name
+end
+
+local function findPoleInBags()
+    for bag = 0, (NUM_BAG_SLOTS or 4) do
+        local slots = GetContainerNumSlots(bag) or 0
+        for slot = 1, slots do
+            local link = GetContainerItemLink(bag, slot)
+            if link and isPoleSubType(itemSubType(link)) then
+                return (GetItemInfo(link))
+            end
+        end
+    end
+    return nil
+end
+
+local function hasLureBuff()
+    -- Main-hand temporary weapon enchant (lure) is the first return.
+    local hasMainHand = GetWeaponEnchantInfo()
+    return hasMainHand and true or false
 end
 
 local function findFirstBaitInBags(preferredList)
-    -- Walk preferred list in order; return first item found in any bag.
-    for _, baitName in ipairs(preferredList) do
-        local count = GetItemCount(baitName)
+    for _, name in ipairs(preferredList) do
+        local count = GetItemCount(name)
         if count and count > 0 then
-            return baitName
+            return name
         end
     end
     return nil
 end
 
 local function isEmptyWorldClick()
-    -- Skip if a target exists or mouse is over a UI frame / unit.
-    if UnitExists("target") then return false end
-    if UnitExists("mouseover") then return false end
-    local focus = GetMouseFocus()
-    if focus and focus ~= WorldFrame then return false end
-    -- SpellIsTargeting means the client is waiting for a click cast; don't interfere.
-    if SpellIsTargeting and SpellIsTargeting() then return false end
+    if UnitExists("mouseover") then return false, "cursor is over a unit" end
+    if SpellIsTargeting and SpellIsTargeting() then
+        return false, "spell is targeting"
+    end
     return true
 end
 
 -------------------------------------------------
--- Core: try to apply bait
+-- Decide the next protected action
 -------------------------------------------------
+--
+-- Returns (type, value, message) tuple:
+--   type  = "item" | "macro" | "spell" | nil (no-op)
+--   value = item name, macro text, or spell name
+--   message = optional user-facing chat line to print AFTER the click
+--
+-- The secure button's attributes are set from this so the actual protected
+-- call is dispatched by Blizzard's own action-button code path.
 
-local function tryApplyBait()
-    if not isFishingPoleEquipped() then return end
-    if hasFishingLureBuff() then return end -- silent skip when already lured
-
-    local db = EasyFishDB or {}
-    local preferred = db.preferredBait or DEFAULT_BAIT
-    local bait = findFirstBaitInBags(preferred)
-    if not bait then
-        say("no bait in bags")
-        return
+local function nextAction()
+    local pole = equippedPoleName()
+    if not pole then
+        local bagPole = findPoleInBags()
+        if not bagPole then
+            return nil, nil, "no fishing pole equipped or in bags"
+        end
+        return "item", bagPole, "equipping " .. bagPole .. " (click again after it swaps)"
     end
 
-    -- Combat safety: UseItemByName is protected in combat. Fishing is always
-    -- out of combat, but check anyway.
-    if InCombatLockdown() then return end
+    if not hasLureBuff() then
+        local db = EasyFishDB or {}
+        local preferred = db.preferredBait or DEFAULT_BAIT
+        local bait = findFirstBaitInBags(preferred)
+        if bait then
+            local macroText = "/use " .. bait .. "\n/use 16"
+            return "macro", macroText, "applying " .. bait .. " (click again after 5s)"
+        end
+        -- No lure available: fall through to fishing.
+        return "spell", FISHING_SPELL, "no lure in bags; casting Fishing"
+    end
 
-    UseItemByName(bait)
-    say("applied " .. bait)
+    return "spell", FISHING_SPELL, nil
 end
 
 -------------------------------------------------
--- Double-right-click detector on WorldFrame
+-- Secure action button + double-input gate
 -------------------------------------------------
 
-local lastRightClick = 0
+local button = CreateFrame("Button", "EasyFishSecureButton", UIParent, "SecureActionButtonTemplate")
+button:SetAttribute("useOnKeyDown", false)
+-- IMPORTANT: register only one phase. AnyUp+AnyDown makes a single physical
+-- press fire PreClick twice (down, then up), which the double-press gate
+-- would misread as a legitimate double-click.
+button:RegisterForClicks("AnyUp")
+button:Hide() -- invisible; we drive it via the binding override
+button:Show() -- must be shown for RegisterForClicks to route through
 
-local function onWorldFrameMouseDown(self, button)
-    if button ~= "RightButton" then return end
-    if not isEmptyWorldClick() then
-        lastRightClick = 0
+local lastArmedClick = 0
+local pendingMessage = nil
+
+local function disarmButton()
+    button:SetAttribute("type", nil)
+    button:SetAttribute("item", nil)
+    button:SetAttribute("macrotext", nil)
+    button:SetAttribute("spell", nil)
+    pendingMessage = nil
+end
+
+-- PreClick fires *before* the secure click resolves the protected action, but
+-- is still driven by the hardware event, so SetAttribute here is honored by
+-- the same click. This is the standard Classic secure-button trick.
+button:SetScript("PreClick", function(self)
+    if InCombatLockdown() then
+        disarmButton()
+        dbg("in combat, ignoring")
         return
     end
+
+    local isEmpty, reason = isEmptyWorldClick()
+    if not isEmpty then
+        disarmButton()
+        lastArmedClick = 0
+        dbg("ignored: " .. (reason or "not empty world"))
+        return
+    end
+
     local now = GetTime()
-    if (now - lastRightClick) <= DOUBLECLICK_WINDOW then
-        tryApplyBait()
-        lastRightClick = 0
-    else
-        lastRightClick = now
-    end
-end
+    local currentMode = EasyFishDB and EasyFishDB.bindingMode
+    local requiresDouble = currentMode and BINDING_MODES[currentMode] and BINDING_MODES[currentMode].double
 
--- Hook without breaking existing OnMouseDown handlers on WorldFrame.
-WorldFrame:HookScript("OnMouseDown", onWorldFrameMouseDown)
+    if requiresDouble then
+        if (now - lastArmedClick) > DOUBLECLICK_WINDOW then
+            -- First click of the pair: register the timestamp but do NOT arm.
+            disarmButton()
+            lastArmedClick = now
+            dbg("first input press")
+            return
+        end
+        -- Second click within window: fall through to arm.
+        lastArmedClick = 0
+    else
+        -- Single-press mode: arm on every qualifying click.
+        lastArmedClick = 0
+    end
+
+    local actionType, value, msg = nextAction()
+    if not actionType then
+        disarmButton()
+        if msg then say(msg) end
+        return
+    end
+    button:SetAttribute("type", actionType)
+    if actionType == "macro" then
+        button:SetAttribute("macrotext", value)
+    else
+        button:SetAttribute(actionType, value)
+    end
+    pendingMessage = msg
+    dbg("armed " .. actionType .. "=" .. tostring(value):gsub("\n", "; "))
+end)
+
+button:SetScript("PostClick", function(self)
+    -- Disarm immediately so a stray click can't refire the same action.
+    if pendingMessage then say(pendingMessage) end
+    disarmButton()
+end)
 
 -------------------------------------------------
 -- Load / SavedVariables
@@ -131,12 +286,19 @@ WorldFrame:HookScript("OnMouseDown", onWorldFrameMouseDown)
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
-loader:SetScript("OnEvent", function(self, event, loadedName)
-    if event == "ADDON_LOADED" and loadedName == addonName then
+loader:SetScript("OnEvent", function(self, event, arg1)
+    if event == "ADDON_LOADED" and arg1 == addonName then
         EasyFishDB = EasyFishDB or {}
         if not EasyFishDB.preferredBait then
             EasyFishDB.preferredBait = {}
-            for i, v in ipairs(DEFAULT_BAIT) do EasyFishDB.preferredBait[i] = v end
+            for i, v in ipairs(DEFAULT_BAIT) do
+                EasyFishDB.preferredBait[i] = v
+            end
+        end
+        EasyFishDB.bindingMode = EasyFishDB.bindingMode or "alt-double-right"
+        -- Migrate previously offered plain-right modes that hijacked BUTTON2.
+        if EasyFishDB.bindingMode == "right" or EasyFishDB.bindingMode == "double-right" then
+            EasyFishDB.bindingMode = "alt-double-right"
         end
         self:UnregisterEvent("ADDON_LOADED")
     end
@@ -149,18 +311,64 @@ end)
 SLASH_EASYFISH1 = "/easyfish"
 SLASH_EASYFISH2 = "/ef"
 SlashCmdList["EASYFISH"] = function(msg)
-    msg = (msg or ""):lower():match("^%s*(.-)%s*$")
+    msg = (msg or ""):lower():match("^%s*(.-)%s*$") or ""
+
     if msg == "" or msg == "help" then
         say("commands:")
-        print("  /ef list          - show preferred bait order")
-        print("  /ef reset         - reset to defaults")
-        print("  /ef prefer <name> - move <name> to top of preference list")
-        print("  /ef test          - dry-run bait selection (no application)")
+        print("  /ef list          - show preferred lure order + bag counts")
+        print("  /ef prefer <name> - move <name> to top of the priority list")
+        print("  /ef reset         - restore default lure priority")
+        print("  /ef test          - report the next action without arming")
+        print("  /ef binding <mode> - alt-right, alt-double-right, alt-f, alt-double-f, shift-right, shift-double-right, or off")
+        print("    (plain modes fire on a single press; -double- modes require two taps within 0.5s)")
+        print("  /ef debug         - toggle verbose input logging")
+        print("  /ef status        - show input binding + arm state")
+        return
+    end
+
+    if msg == "status" then
+        local keyboardAction = GetBindingAction("ALT-F", true)
+        local altRightAction = GetBindingAction("ALT-BUTTON2", true)
+        local shiftRightAction = GetBindingAction("SHIFT-BUTTON2", true)
+        say("binding mode: " .. ((EasyFishDB and EasyFishDB.bindingMode) or "unknown"))
+        say("Alt+F binding: " .. ((keyboardAction ~= "" and keyboardAction) or "not registered"))
+        say("Alt+right binding: " .. ((altRightAction ~= "" and altRightAction) or "not registered"))
+        say("Shift+right binding: " .. ((shiftRightAction ~= "" and shiftRightAction) or "not registered"))
+        say("secure button shown: " .. (button:IsShown() and "yes" or "no"))
+        say("secure button key phase: " .. (button:GetAttribute("useOnKeyDown") and "down" or "up"))
+        say("in combat: " .. (InCombatLockdown() and "yes" or "no"))
+        return
+    end
+
+    if msg == "bind" then msg = "binding alt-double-right" end
+    
+    local bindingMode = msg:match("^binding%s+(%S+)$")
+    if bindingMode and (BINDING_KEYS[bindingMode] or bindingMode == "off") then
+        local ok, err = setBindingMode(bindingMode)
+        if not ok then
+            say(err)
+        elseif bindingMode == "shift-right" or bindingMode == "shift-double-right" then
+            local kind = (BINDING_MODES[bindingMode] and BINDING_MODES[bindingMode].double) and "double-" or ""
+            say("binding set to shift+" .. kind .. "right-click")
+        else
+            say("binding set to " .. bindingMode)
+        end
+        return
+    end
+
+    if msg:match("^binding") then
+        say("usage: /ef binding alt-right|alt-double-right|alt-f|alt-double-f|shift-right|shift-double-right|off")
+        return
+    end
+
+    if msg == "debug" then
+        debugEnabled = not debugEnabled
+        say("debug " .. (debugEnabled and "enabled" or "disabled"))
         return
     end
 
     if msg == "list" then
-        say("preferred bait order:")
+        say("preferred lure order:")
         local list = (EasyFishDB and EasyFishDB.preferredBait) or DEFAULT_BAIT
         for i, name in ipairs(list) do
             local count = GetItemCount(name) or 0
@@ -172,22 +380,24 @@ SlashCmdList["EASYFISH"] = function(msg)
     if msg == "reset" then
         EasyFishDB.preferredBait = {}
         for i, v in ipairs(DEFAULT_BAIT) do EasyFishDB.preferredBait[i] = v end
-        say("preferred bait reset to defaults")
+        say("preferred lure order reset to defaults")
         return
     end
 
     if msg == "test" then
-        if not isFishingPoleEquipped() then say("test: no fishing pole equipped"); return end
-        if hasFishingLureBuff() then say("test: pole is already lured"); return end
-        local bait = findFirstBaitInBags(EasyFishDB.preferredBait or DEFAULT_BAIT)
-        if bait then say("test: would apply " .. bait) else say("test: no bait in bags") end
+        local t, v, m = nextAction()
+        if not t then
+            say("test: " .. (m or "no action available"))
+        else
+            say("test: next click would fire " .. t .. "=" .. tostring(v))
+            if m then say("test: (message would be: " .. m .. ")") end
+        end
         return
     end
 
     local prefer = msg:match("^prefer%s+(.+)$")
     if prefer and prefer ~= "" then
-        -- Move prefer to top; if it wasn't in the list, prepend.
-        local list = EasyFishDB.preferredBait or {}
+        local list = (EasyFishDB and EasyFishDB.preferredBait) or {}
         local new = { prefer }
         for _, name in ipairs(list) do
             if name:lower() ~= prefer:lower() then table.insert(new, name) end

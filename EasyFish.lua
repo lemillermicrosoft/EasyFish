@@ -250,6 +250,28 @@ button:SetScript("PreClick", function(self)
         return
     end
 
+    -- Late-bind path: GLOBAL_MOUSE_DOWN handler already gated the
+    -- double-click, ran the empty-world / bobber / channel checks, and set
+    -- the SA button's attributes via armLateBindOverride. All PreClick has
+    -- to do is let Blizzard fire the click. The legacy timing gate below
+    -- would misclassify this as "first input press" and clobber the arm.
+    if armedByLateBind then
+        armedByLateBind = false
+        lastArmedClick = 0
+        dbg("late-bind click passthrough")
+        return
+    end
+
+    -- Belt-and-suspenders: the `double-right` mode is driven entirely by
+    -- the late-bind path above. If we somehow got here in that mode
+    -- (stale override, unexpected click routing), don't apply the legacy
+    -- modifier-mode double-tap gate on top of it.
+    if EasyFishDB and EasyFishDB.bindingMode == "double-right" then
+        disarmButton()
+        dbg("double-right: PreClick without late-bind arm; ignoring")
+        return
+    end
+
     local isEmpty, reason = isEmptyWorldClick()
     if not isEmpty then
         disarmButton()
@@ -346,6 +368,7 @@ end
 
 local lateBindFrame = CreateFrame("Frame")
 local lateBindActive = false
+local armedByLateBind = false
 
 local function armLateBindOverride()
     local actionType, value, msg = nextAction()
@@ -362,11 +385,11 @@ local function armLateBindOverride()
     pendingMessage = msg
     -- Install the one-shot override. PostClick's wrapped snippet will
     -- ClearBindings() as soon as the click resolves.
-    if not SetOverrideBindingClick(button, true, "BUTTON2", "EasyFishSecureButton", "LeftButton") then
-        disarmButton()
-        dbg("SetOverrideBindingClick failed")
-        return false
-    end
+    -- SetOverrideBindingClick is a Blizzard C API that returns nothing;
+    -- do NOT branch on its return value. Earlier code did, always took the
+    -- "failed" branch (because `not nil` is truthy), and discarded the arm.
+    SetOverrideBindingClick(button, true, "BUTTON2", "EasyFishSecureButton", "LeftButton")
+    armedByLateBind = true
     dbg("late-bind armed " .. actionType .. "=" .. tostring(value):gsub("\n", "; "))
     return true
 end

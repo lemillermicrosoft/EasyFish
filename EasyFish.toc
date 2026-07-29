@@ -1,9 +1,10 @@
-## Interface: 20506
+﻿## Interface: 20506
 ## Title: EasyFish
 ## Notes: Double right-click in empty world to apply bait to your fishing pole.
 ## Author: GitHub Copilot c/o deehoc
-## Version: 0.1.0
+## Version: 0.2.0
 ## IconTexture: Interface\AddOns\EasyFish\Media\icon.png
 ## SavedVariables: EasyFishDB
 
 EasyFish.lua
+

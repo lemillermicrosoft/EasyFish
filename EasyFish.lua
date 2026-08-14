@@ -21,10 +21,16 @@ local addonName = ...
 -- Defaults / constants
 -------------------------------------------------
 
+-- Default lure priority. All entries apply a +fishing skill buff for 10
+-- minutes via the main-hand temporary weapon enchant (GetWeaponEnchantInfo).
+-- Ordered roughly highest-bonus first so the strongest available lure wins.
+-- Users can reorder / trim this via /ef set and /ef reset.
 local DEFAULT_BAIT = {
-    "Bright Baubles",
+    "Sharpened Fish Hook",       -- TBC (Outland)
+    "Aquadynamic Fish Lens",     -- TBC
     "Aquadynamic Fish Attractor",
-    "Aquadynamic Fish Lens",
+    "Bright Baubles",
+    "Flesh Eating Worm",
     "Nightcrawlers",
     "Shiny Bauble",
 }

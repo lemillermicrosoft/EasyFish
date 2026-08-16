@@ -1,7 +1,7 @@
-﻿# v0.4.1
+﻿# v0.5.0
 
-Changes since v0.4.0.
+Changes since v0.4.1.
 
-## Fixes
-- add Sharpened Fish Hook + missing +fishing lures to default list (#9) (#10) (10bd9c9)
+## Features
+- configurable double-click windows + raise plain double-right default (#11) (#12) (584e94f)
 

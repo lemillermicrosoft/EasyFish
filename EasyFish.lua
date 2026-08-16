@@ -35,9 +35,20 @@ local DEFAULT_BAIT = {
     "Shiny Bauble",
 }
 
-local DOUBLECLICK_WINDOW = 0.50 -- seconds between the two input presses
-local LATEBIND_DOUBLECLICK_MIN = 0.05 -- min gap for late-bind double-click detection
-local LATEBIND_DOUBLECLICK_MAX = 0.40 -- max gap for late-bind double-click detection
+local DOUBLECLICK_WINDOW_DEFAULT = 0.50 -- seconds between the two input presses (modifier double-modes)
+local LATEBIND_DOUBLECLICK_MIN = 0.05 -- min gap for late-bind double-click detection (debounce; not user-tunable)
+local LATEBIND_DOUBLECLICK_MAX_DEFAULT = 0.60 -- max gap for late-bind double-click detection (plain double-right)
+local DOUBLECLICK_WINDOW_MIN, DOUBLECLICK_WINDOW_MAX = 0.20, 1.50
+
+local function getDoubleclickWindow()
+    local v = EasyFishDB and EasyFishDB.doubleclickWindow
+    return (type(v) == "number" and v) or DOUBLECLICK_WINDOW_DEFAULT
+end
+
+local function getLateBindDoubleclickMax()
+    local v = EasyFishDB and EasyFishDB.doubleRightMax
+    return (type(v) == "number" and v) or LATEBIND_DOUBLECLICK_MAX_DEFAULT
+end
 local FISHING_POLE_SUBTYPE = "Fishing Poles" -- TBC 2.5.6 GetItemInfo subtype
 local FISHING_SPELL = "Fishing"
 local FISHING_BOBBER_NAME = "Fishing Bobber" -- enUS tooltip substring; other locales fall back to alt/shift modes
@@ -292,7 +303,7 @@ button:SetScript("PreClick", function(self)
     local requiresDouble = currentMode and BINDING_MODES[currentMode] and BINDING_MODES[currentMode].double
 
     if requiresDouble then
-        if (now - lastArmedClick) > DOUBLECLICK_WINDOW then
+        if (now - lastArmedClick) > getDoubleclickWindow() then
             -- First click of the pair: register the timestamp but do NOT arm.
             disarmButton()
             lastArmedClick = now
@@ -430,7 +441,7 @@ lateBindFrame:SetScript("OnEvent", function(self, event, mouseButton)
 
     local now = GetTime()
     local gap = now - lateBindLastRightDown
-    if gap >= LATEBIND_DOUBLECLICK_MIN and gap <= LATEBIND_DOUBLECLICK_MAX then
+    if gap >= LATEBIND_DOUBLECLICK_MIN and gap <= getLateBindDoubleclickMax() then
         -- Second press of a double-right within the window: fire.
         lateBindLastRightDown = 0
         armLateBindOverride()
@@ -512,8 +523,10 @@ SlashCmdList["EASYFISH"] = function(msg)
         print("  /ef reset         - restore default lure priority")
         print("  /ef test          - report the next action without arming")
         print("  /ef binding <mode> - double-right, alt-right, alt-double-right, alt-f, alt-double-f, shift-right, shift-double-right, or off")
-        print("    (plain-modifier modes fire on a single press; -double- modes require two taps within 0.5s)")
+        print("    (plain-modifier modes fire on a single press; -double- modes require two taps within the double-click window)")
         print("    (double-right uses a late-bound override so native right-click, camera, and bobber loot still work)")
+        print("  /ef doubleclick [seconds] - get/set modifier double-mode window (default 0.50, range 0.20-1.50)")
+        print("  /ef doubleright [seconds] - get/set plain double-right max window (default 0.60, range 0.20-1.50)")
         print("  /ef debug         - toggle verbose input logging")
         print("  /ef status        - show input binding + arm state")
         return
@@ -556,6 +569,40 @@ SlashCmdList["EASYFISH"] = function(msg)
 
     if msg:match("^binding") then
         say("usage: /ef binding double-right|alt-right|alt-double-right|alt-f|alt-double-f|shift-right|shift-double-right|off")
+        return
+    end
+
+    if msg == "doubleclick" then
+        say(string.format("doubleclick window: %.2fs (default %.2f)", getDoubleclickWindow(), DOUBLECLICK_WINDOW_DEFAULT))
+        return
+    end
+
+    local dcVal = msg:match("^doubleclick%s+([%d%.]+)$")
+    if dcVal then
+        local n = tonumber(dcVal)
+        if not n or n < DOUBLECLICK_WINDOW_MIN or n > DOUBLECLICK_WINDOW_MAX then
+            say(string.format("doubleclick must be between %.2f and %.2f seconds", DOUBLECLICK_WINDOW_MIN, DOUBLECLICK_WINDOW_MAX))
+            return
+        end
+        EasyFishDB.doubleclickWindow = n
+        say(string.format("doubleclick window set to %.2fs", n))
+        return
+    end
+
+    if msg == "doubleright" then
+        say(string.format("double-right max window: %.2fs (default %.2f)", getLateBindDoubleclickMax(), LATEBIND_DOUBLECLICK_MAX_DEFAULT))
+        return
+    end
+
+    local drVal = msg:match("^doubleright%s+([%d%.]+)$")
+    if drVal then
+        local n = tonumber(drVal)
+        if not n or n < DOUBLECLICK_WINDOW_MIN or n > DOUBLECLICK_WINDOW_MAX then
+            say(string.format("doubleright must be between %.2f and %.2f seconds", DOUBLECLICK_WINDOW_MIN, DOUBLECLICK_WINDOW_MAX))
+            return
+        end
+        EasyFishDB.doubleRightMax = n
+        say(string.format("double-right max window set to %.2fs", n))
         return
     end
 

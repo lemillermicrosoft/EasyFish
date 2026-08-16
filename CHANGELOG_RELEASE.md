@@ -1,7 +1,7 @@
-﻿# v0.4.0
+﻿# v0.4.1
 
-Changes since v0.3.1.
+Changes since v0.4.0.
 
-## Features
-- add FishingBuddy-style double-right mode via late-bound override (#6) (#7) (4fe3de6)
+## Fixes
+- add Sharpened Fish Hook + missing +fishing lures to default list (#9) (#10) (10bd9c9)
 

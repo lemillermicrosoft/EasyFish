@@ -1,61 +1,75 @@
-# EasyFish
+# EasyFish Forever
 
-A tiny quality-of-life addon for fishing in **World of Warcraft: TBC Classic (2.5.6)**.
+A separate, conservative port of EasyFish for **World of Warcraft: Forever (Interface 16001)**.
 
-**Concept:** point at the empty game world and double-press your configured binding. EasyFish walks you through equipping a fishing pole, applying your preferred lure, and starting to fish — one action per double-press.
+EasyFish Forever prepares one fishing step at a time:
 
-## Why the double-click and modifier
+1. Equip a fishing pole from bags.
+2. Apply the highest-priority available lure.
+3. Cast Fishing.
 
-WoW's protected action APIs (`EquipItemByName`, `UseItemByName`, `CastSpellByName`) only fire when driven by a real hardware event on a secure action button. A plain `WorldFrame` mouse hook doesn't count, and this Classic client consumes `BUTTON2` over empty 3D terrain before an addon can receive it. EasyFish therefore declares `Alt+F` through WoW's static Key Bindings system and routes it to a `SecureActionButton`.
+Every step requires its own physical click. Bobber interaction and loot remain completely native.
 
-After installing or updating, run `/ef bind` once to assign the default `Alt+right-click` binding, or use the new plain `double-right` mode which does not require a modifier. `double-right` uses a *late-bound override*: a `GLOBAL_MOUSE_DOWN` handler only registers `BUTTON2` on the secure button for the single synthetic click that fires after a valid double-tap on empty world; it is cleared immediately after via a restricted `SecureHandlerWrapScript` snippet. That means normal right-click (camera turn, bobber looting, left+right run-forward) is untouched at all other times. `double-right` is the default for new installs; existing users keep whatever mode they had.
-
-Switch modes with `/ef binding <mode>`:
-
-- `double-right` — plain double-right-click, late-bound override (default for new installs).
-- `alt-right` / `alt-double-right` — `Alt` + right-click, single or double press.
-- `alt-f` / `alt-double-f` — `Alt+F` keyboard fallback.
-- `shift-right` / `shift-double-right` — `Shift` + right-click.
-- `off` — disable EasyFish's input and restore displaced bindings.
-
-You can also assign **EasyFish → Advance fishing setup** in WoW's Key Bindings UI.
-
-Because a single hardware click can only perform one protected action, the flow spans multiple presses:
-
-1. Double-press the configured binding over empty world → equip a fishing pole from bags (if none is equipped).
-2. Double-press it again → apply the top-priority available lure (if the pole has no lure buff).
-3. Double-press it again → cast Fishing.
-
-If you have no matching lure in bags, step 2 is skipped and step 3 fires directly.
+> This is an `0.1.0-rc1` client-test candidate. Interface 16001 probes are still required; see [API_FINDINGS.md](API_FINDINGS.md).
 
 ## Install
 
-1. Copy the `EasyFish` folder into `World of Warcraft\_classic_\Interface\AddOns\`.
-2. Restart the client or `/reload`.
+Extract the package so this exact folder exists:
+
+`World of Warcraft\_classic_era_\Interface\AddOns\EasyFish_Forever\`
+
+At character login, open **Esc > Options > AddOns > EasyFish Forever**. Choose a quick modifier binding, or use **Esc > Options > Key Bindings > EasyFish Forever**.
+
+The default quick binding is `NONE`. Recommended: `ALT-BUTTON2`. Plain double-right-click is intentionally not available because its old late-binding technique has not been proven safe on the restricted Interface 16001 client.
+
+## Appearance
+
+The on-screen action button shows the currently prepared step. Options include:
+
+- `native` — Blizzard quick-slot appearance (default)
+- `original` — EasyFish blue styling
+- `custom` — purple custom styling
+
+The button can be hidden after assigning a binding.
 
 ## Commands
 
-- `/easyfish` or `/ef` — show help.
-- `/ef list` — show lure priority and current bag counts.
-- `/ef prefer <name>` — move a lure to the top of the priority list.
-- `/ef reset` — restore default TBC lure priority.
-- `/ef test` — report which action the next click would fire, without arming it.
-- `/ef binding double-right` — plain double-right-click via a late-bound override (default).
-- `/ef binding alt-right` — use `Alt` + right-click.
-- `/ef binding alt-f` — use `Alt+F` as a fallback.
-- `/ef binding shift-right` — use `Shift` + right-click.
-- `/ef binding off` — disable EasyFish's input and restore displaced bindings.
-- `/ef debug` — toggle verbose input logging.
-- `/ef status` — show the resolved input binding and secure-button state.
+- `/eff` or `/eff options` — open settings
+- `/eff status` — report prepared action, binding, combat state, and version
+- `/eff refresh` — refresh the prepared action out of combat
+- `/eff bind alt-f|alt-right|shift-right|off` — set a safe quick override
+- `/eff import` — opt-in copy of the original addon's lure order
+- `/eff help` — command summary
 
-## Default lure priority
+Forever uses `EasyFishForeverDB` and does not modify `EasyFishDB`. Its slash commands are distinct from `/ef` and `/easyfish`.
 
-Bright Baubles → Aquadynamic Fish Attractor → Aquadynamic Fish Lens → Nightcrawlers → Shiny Bauble.
+## Safety boundary
 
-## Requested by
+EasyFish Forever does not:
 
-toast06961 via Discord DM to the OpenClaw bot.
+- auto-click or auto-loot a bobber;
+- detect bites from sound;
+- inspect mouseover/cursor targets to choose protected actions;
+- call protected cast/equip/use APIs without a hardware event;
+- change secure attributes or bindings in combat;
+- use unmodified right-click.
 
-## Repo
+See [API_FINDINGS.md](API_FINDINGS.md) for the full feasibility audit and exact smoke tests.
 
-<https://github.com/lemillermicrosoft/EasyFish>
+## Build and test
+
+Requires Node.js:
+
+```text
+npm install
+npm test
+npm run package
+```
+
+The deterministic candidate is written to `dist/EasyFish_Forever-v0.1.0-rc1.zip`; the ZIP root is `EasyFish_Forever/`.
+
+## Project recommendation
+
+Publish this as a **separate GitHub repository and separate CurseForge project**, not as an EasyFish TBC release. It has a different addon folder, TOC, SavedVariables, slash commands, security model, supported client, and release validation gate. Keep the original repository/history as provenance and import source.
+
+No repository or release is created by this candidate. The original repository currently has no declared license; the owner should choose explicit distribution terms before public release.

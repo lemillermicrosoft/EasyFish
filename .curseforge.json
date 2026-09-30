@@ -1,6 +1,5 @@
 {
-  "projectId": 1629924,
-  "gameVersions": ["2.5.6"],
-  "releaseType": "release",
-  "_comment": "projectId: find on CurseForge project page sidebar. gameVersions: names or slugs; resolved to IDs via API. Or use gameVersionIds: [12345] to bypass lookup."
+  "gameVersions": ["1.16.1"],
+  "releaseType": "beta",
+  "_comment": "Forever candidate only. A distinct CurseForge project ID must be approved and added before upload. Do not reuse EasyFish project 1629924."
 }

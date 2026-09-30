@@ -1,31 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc1 - 2026-09-30
 
-- **feat:** Add FishingBuddy-style plain `double-right` binding mode via a late-bound override. On each right-mouse press, a `GLOBAL_MOUSE_DOWN` handler checks for a double-right within a 0.05–0.40s window over empty world (skipping presses on a fishing bobber tooltip and while already channeling `Fishing`). Only when all guards pass does it call `SetOverrideBindingClick(BUTTON2 → EasyFishSecureButton:LeftButton)`, and `SecureHandlerWrapScript(PostClick, [[ self:ClearBindings() ]])` immediately unbinds it once the synthetic click resolves. Net effect: `BUTTON2` is bound for exactly one synthetic click per valid double-tap, so native right-click, camera turn, left+right run-forward, and bobber loot are untouched at all other times. New installs default to `double-right`; existing users keep their previous mode. (#6)
-- **change:** Make `Alt+right-click` the default because it preserves bobber looting and works with click-to-move.
-- **change:** Drop plain `right` / `double-right` binding modes. Binding `BUTTON2` hijacked WoW's native right-click, which broke bobber looting, camera turn, and left+right run-forward. Use `alt-right` / `alt-double-right`, `alt-f` / `alt-double-f`, or `shift-right` / `shift-double-right` instead. Existing saves are migrated to `alt-double-right`.
-- **change:** Plain-modifier modes (`alt-right`, `alt-f`, `shift-right`) now fire on a **single** press. Only the `-double-` variants require two taps within 0.5s.
-- **fix:** Apply lures with a secure `/use <lure>` + `/use 16` macro, because TBC leaves `target-item` actions on the targeting cursor.
-- **fix:** Remove `GetMouseFocus()`, which is unavailable in this Classic client and aborted input handling whenever the cursor was not over a unit.
-- **fix:** Replace runtime override bindings with a static `Bindings.xml` secure click command and add `/ef bind` for existing character profiles.
-- **fix:** Add `Alt+F` as the reliable input because Classic consumes `BUTTON2` over empty 3D terrain before the addon override receives it.
-- **fix:** Register secure clicks for both input phases and explicitly execute bindings on key-up, independent of the client's action-button setting.
-- **fix:** Rebuild the Alt + double-right-click flow on a `SecureActionButton` with an override binding. v0.3.0's `WorldFrame:HookScript("OnMouseDown")` approach did not count as a hardware event, so the protected `UseItemByName` / `CastSpellByName` calls silently failed in-game. (#4)
-- **feat:** State-machine progression per click: equip fishing pole from bags → apply top-priority lure → cast Fishing. One protected action per click, gated by no-mouseover and no-spell-targeting checks in `PreClick`.
-- `/ef test` now reports the next protected action instead of just bait selection.
-- `/ef debug` and `/ef status` help diagnose binding issues live.
+- Ported EasyFish to a distinct `EasyFish_Forever` Interface 16001 candidate.
+- Retained one-action-per-hardware-click equip, lure, and cast workflow.
+- Replaced the TBC `PreClick`/plain-double-right late-bind path with out-of-combat pre-arming and safe modifier/native bindings.
+- Added secret-value guards, combat deferral, modern container/spell API compatibility, and fail-closed behavior.
+- Added Esc > Options configuration, native/original/custom button appearances, startup guidance, and opt-in legacy lure import.
+- Added API/taint findings, exact client probes, deterministic tests, and packaging.
 
-## v0.2.0 - 2026-07-28
-
-- **feat:** Double right-click in empty world with fishing pole equipped applies your top preferred bait automatically. (#2)
-- `/ef list` shows preferred bait order + current bag counts.
-- `/ef prefer <name>` moves a bait to the top of the priority list.
-- `/ef reset` restores default TBC bait order.
-- `/ef test` dry-runs bait selection without applying.
-- Silent no-op when pole isn't equipped, lure is already active, or no bait in bags (with a friendly "no bait" message).
-
-## v0.1.0 - 2026-07-28
-
-- Initial scaffold. Loads in-game, registers `/easyfish` (`/ef`) slash command.
-- Core "double right-click to apply bait" feature not yet implemented.
+The original EasyFish changelog remains available in git history through tag `v0.5.0`.

@@ -1,4 +1,3 @@
-﻿# Generated release artifacts and staging
 dist/
-.tmp/
-
+node_modules/
+*.log

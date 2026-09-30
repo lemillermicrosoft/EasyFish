@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: EasyFish Forever
+## Notes: One-click-per-step fishing helper for WoW Forever.
+## Author: Lee Miller / EasyFish contributors
+## Version: 0.1.0-rc1
+## IconTexture: Interface\AddOns\EasyFish_Forever\Media\icon.png
+## SavedVariables: EasyFishForeverDB
+## OptionalDeps: EasyFish
+
+Core.lua
+Options.lua

@@ -10,13 +10,15 @@ EasyFish Forever prepares one fishing step at a time:
 
 Every step requires its own physical click. Bobber interaction and loot remain completely native.
 
-> This is an `0.1.0-rc1` client-test candidate. Interface 16001 probes are still required; see [API_FINDINGS.md](API_FINDINGS.md).
+> Initial public alpha for Interface 16001. The secure equip, lure, cast, visible-button, and key-binding paths have been smoke-tested on the WoW Forever beta client; see [API_FINDINGS.md](API_FINDINGS.md).
 
 ## Install
 
 Extract the package so this exact folder exists:
 
-`World of Warcraft\_classic_era_\Interface\AddOns\EasyFish_Forever\`
+`World of Warcraft\_classic_beta_\Interface\AddOns\EasyFish_Forever\`
+
+The folder name may change when WoW Forever leaves beta; the required final portion remains `Interface\AddOns\EasyFish_Forever\`.
 
 At character login, open **Esc > Options > AddOns > EasyFish Forever**. Choose a quick modifier binding, or use **Esc > Options > Key Bindings > EasyFish Forever**.
 
@@ -39,6 +41,7 @@ The button can be hidden after assigning a binding.
 - `/eff refresh` — refresh the prepared action out of combat
 - `/eff bind alt-f|alt-right|shift-right|off` — set a safe quick override
 - `/eff import` — opt-in copy of the original addon's lure order
+- `/eff debug` — toggle secure-click diagnostics
 - `/eff help` — command summary
 
 Forever uses `EasyFishForeverDB` and does not modify `EasyFishDB`. Its slash commands are distinct from `/ef` and `/easyfish`.
@@ -68,8 +71,8 @@ npm run package
 
 The deterministic candidate is written to `dist/EasyFish_Forever-v0.1.0-rc1.zip`; the ZIP root is `EasyFish_Forever/`.
 
-## Project recommendation
+## Separate Forever product
 
-Publish this as a **separate GitHub repository and separate CurseForge project**, not as an EasyFish TBC release. It has a different addon folder, TOC, SavedVariables, slash commands, security model, supported client, and release validation gate. Keep the original repository/history as provenance and import source.
+EasyFish Forever is published separately from EasyFish TBC because it has a different addon folder, TOC, SavedVariables, slash commands, security model, supported client, and release validation gate. The original repository and history remain the provenance and optional settings-import source.
 
-No repository or release is created by this candidate. The original repository currently has no declared license; the owner should choose explicit distribution terms before public release.
+The source is publicly available, but no open-source license is currently granted. All rights are reserved unless the owner later publishes explicit license terms.

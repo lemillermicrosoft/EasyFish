@@ -8,7 +8,7 @@ EF = EF or {}
 _G.EasyFishForever = EF
 
 EF.ADDON_NAME = addonName
-EF.VERSION = "0.1.0-alpha"
+EF.VERSION = "0.1.1-alpha"
 EF.INTERFACE = 16001
 EF.FISHING_SPELL_IDS = { 131474, 7620 }
 EF.PREFIX = "|cff33b3ffEasyFish Forever|r"
@@ -35,6 +35,7 @@ EF.DEFAULTS = {
     importedLegacy = false,
     debug = false,
     buttonPoint = "CENTER",
+    buttonRelativePoint = "CENTER",
     buttonX = 0,
     buttonY = -120,
 }
@@ -51,7 +52,10 @@ local actionButton = CreateFrame("Button", "EasyFishForeverActionButton", UIPare
 EF.actionButton = actionButton
 
 actionButton:SetSize(44, 44)
+actionButton:SetMovable(true)
+actionButton:SetClampedToScreen(true)
 actionButton:RegisterForClicks("AnyUp")
+actionButton:RegisterForDrag("LeftButton")
 actionButton:SetAttribute("useOnKeyDown", false)
 actionButton:SetClampedToScreen(true)
 
@@ -166,8 +170,12 @@ local function isFishingPole(item)
     return classID == 2 and subclassID == fishingPoleSubclass()
 end
 
+local function equippedMainHand()
+    return safeCall(GetInventoryItemLink, "player", 16)
+end
+
 local function equippedPole()
-    local link = safeCall(GetInventoryItemLink, "player", 16)
+    local link = equippedMainHand()
     if link and isFishingPole(link) then return link end
     return nil
 end
@@ -244,6 +252,10 @@ end
 function EF.DecideAction()
     local pole = equippedPole()
     if not pole then
+        local currentMainHand = equippedMainHand()
+        if currentMainHand and not isFishingPole(currentMainHand) and not isSecret(currentMainHand) then
+            EF.previousMainHand = currentMainHand
+        end
         local found = bagPole()
         if found then
             return "item", found, "Equip fishing pole"
@@ -268,6 +280,8 @@ local function clearProtectedAttributes()
     actionButton:SetAttribute("item", nil)
     actionButton:SetAttribute("macrotext", nil)
     actionButton:SetAttribute("spell", nil)
+    actionButton:SetAttribute("type2", nil)
+    actionButton:SetAttribute("item2", nil)
 end
 
 function EF.RefreshAction()
@@ -290,6 +304,10 @@ function EF.RefreshAction()
         actionButton:Enable()
     else
         actionButton:Disable()
+    end
+    if EF.previousMainHand and not isSecret(EF.previousMainHand) then
+        actionButton:SetAttribute("type2", "item")
+        actionButton:SetAttribute("item2", EF.previousMainHand)
     end
     actionButton.status:SetText(label or "Unavailable")
     EF.currentAction = { actionType, value, label }
@@ -364,10 +382,43 @@ function EF.ApplyAppearance()
     actionButton:EnableMouse(EF.db.showButton and true or false)
 end
 
-local function resetPosition()
+local function restorePosition()
     actionButton:ClearAllPoints()
-    actionButton:SetPoint(EF.db.buttonPoint or "CENTER", UIParent, EF.db.buttonPoint or "CENTER", EF.db.buttonX or 0, EF.db.buttonY or -120)
+    actionButton:SetPoint(EF.db.buttonPoint or "CENTER", UIParent, EF.db.buttonRelativePoint or EF.db.buttonPoint or "CENTER", EF.db.buttonX or 0, EF.db.buttonY or -120)
 end
+
+function EF.ResetButtonPosition()
+    if not EF.db then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        say("button position cannot be reset in combat")
+        return false
+    end
+    EF.db.buttonPoint, EF.db.buttonRelativePoint = "CENTER", "CENTER"
+    EF.db.buttonX, EF.db.buttonY = 0, -120
+    restorePosition()
+    say("button position reset")
+    return true
+end
+
+actionButton:SetScript("OnDragStart", function(self)
+    if not EF.db or (InCombatLockdown and InCombatLockdown()) then return end
+    local ok, controlDown = pcall(IsControlKeyDown)
+    if not ok or controlDown ~= true or isSecret(controlDown) then return end
+    EF.dragging = true
+    self:StartMoving()
+end)
+
+actionButton:SetScript("OnDragStop", function(self)
+    if not EF.dragging then return end
+    EF.dragging = nil
+    self:StopMovingOrSizing()
+    local point, _, relativePoint, x, y = self:GetPoint(1)
+    if type(point) == "string" and type(relativePoint) == "string" and type(x) == "number" and type(y) == "number"
+        and not isSecret(point) and not isSecret(relativePoint) and not isSecret(x) and not isSecret(y) then
+        EF.db.buttonPoint, EF.db.buttonRelativePoint = point, relativePoint
+        EF.db.buttonX, EF.db.buttonY = x, y
+    end
+end)
 
 local function openOptions()
     if EF.OpenOptions then EF.OpenOptions() else say("Options are not ready; try again after login") end
@@ -392,6 +443,7 @@ SlashCmdList.EASYFISHFOREVER = function(raw)
     if command == "" or command == "options" then openOptions(); return end
     if command == "status" then status(); return end
     if command == "refresh" then EF.RefreshAction(); say("action state refreshed"); return end
+    if command == "resetposition" then EF.ResetButtonPosition(); return end
     if command == "debug" then
         EF.db.debug = not EF.db.debug
         say("click diagnostics " .. (EF.db.debug and "enabled" or "disabled"))
@@ -410,7 +462,8 @@ SlashCmdList.EASYFISHFOREVER = function(raw)
         return
     end
     if command == "help" then
-        say("/eff options, /eff status, /eff refresh, /eff debug, /eff import, /eff bind <off|alt-f|alt-right|shift-right>")
+        say("/eff options, /eff status, /eff refresh, /eff resetposition, /eff debug, /eff import, /eff bind <off|alt-f|alt-right|shift-right>")
+        say("Ctrl + left-drag moves the button. Right-click restores the main-hand weapon EasyFish replaced.")
         say("Plain double-right-click is intentionally unsupported on the restricted client; use a modifier or native Key Bindings.")
         return
     end
@@ -434,7 +487,9 @@ actionButton:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText("EasyFish Forever")
     GameTooltip:AddLine((EF.currentAction and EF.currentAction[3]) or "Fishing action", 1, 1, 1)
-    GameTooltip:AddLine("One click performs one prepared action.", 0.75, 0.75, 0.75)
+    GameTooltip:AddLine("Left-click: perform prepared action.", 0.75, 0.75, 0.75)
+    if EF.previousMainHand then GameTooltip:AddLine("Right-click: restore previous main hand.", 0.75, 0.75, 0.75) end
+    GameTooltip:AddLine("Ctrl + left-drag: move button.", 0.75, 0.75, 0.75)
     GameTooltip:Show()
 end)
 actionButton:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
@@ -448,7 +503,7 @@ eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
 eventFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
         applyDefaults()
-        resetPosition()
+        restorePosition()
         EF.ApplyAppearance()
         EF.RefreshAction()
     elseif event == "PLAYER_LOGIN" then

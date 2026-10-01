@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1-alpha
+
+- Added persistent Ctrl + left-drag positioning for the action button.
+- Added `/eff resetposition` and an Options reset control.
+- Right-clicking the action button restores the main-hand weapon EasyFish replaced when one was safely observed.
+- Expanded tooltips and help for button controls.
+
 ## 0.1.0-alpha - 2026-09-30
 
 - Ported EasyFish to a distinct `EasyFish_Forever` Interface 16001 candidate.

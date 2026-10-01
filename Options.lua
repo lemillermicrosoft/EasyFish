@@ -76,6 +76,9 @@ refresh:SetScript("OnClick", function()
     EF.Say("prepared action refreshed")
 end)
 
+local resetPosition = createButton("Reset button position", 282, -218, 210)
+resetPosition:SetScript("OnClick", function() EF.ResetButtonPosition() end)
+
 local import = createButton("Import original EasyFish lure order", 16, -252, 250)
 import:SetScript("OnClick", function()
     local _, message = EF.ImportLegacy()
@@ -92,7 +95,7 @@ local warning = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 warning:SetPoint("TOPLEFT", 16, -330)
 warning:SetWidth(600)
 warning:SetJustifyH("LEFT")
-warning:SetText("|cffffcc00No bite detection or bobber auto-loot.|r Right-click the bobber yourself after a bite. EasyFish Forever does not inspect cursor targets, sounds, or protected/secret values to automate gameplay.")
+warning:SetText("|cffffcc00No bite detection or bobber auto-loot.|r Right-click the bobber yourself after a bite. Ctrl + left-drag moves the action button; right-clicking the action button restores the main-hand weapon EasyFish replaced.")
 
 local state = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 state:SetPoint("TOPLEFT", warning, "BOTTOMLEFT", 0, -18)

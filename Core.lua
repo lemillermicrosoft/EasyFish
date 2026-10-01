@@ -304,7 +304,9 @@ end
 function EF.ApplyAppearance()
     if not EF.db then return end
     local mode = EF.db.appearance
-    actionButton:SetNormalTexture(nil)
+    -- Forever requires an explicit asset for SetNormalTexture; the secure
+    -- button never uses a normal texture, so leave it unset instead of trying
+    -- to clear it with nil. The addon-owned background/border provide the skin.
     actionButton.border:Show()
     if mode == "original" then
         actionButton.background:SetColorTexture(0.02, 0.12, 0.18, 0.94)

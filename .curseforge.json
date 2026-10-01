@@ -1,5 +1,6 @@
 {
-  "gameVersions": ["1.16.1"],
-  "releaseType": "beta",
-  "_comment": "Forever candidate only. A distinct CurseForge project ID must be approved and added before upload. Do not reuse EasyFish project 1629924."
+  "projectId": 1720378,
+  "gameVersionIds": [17053],
+  "releaseType": "alpha",
+  "_comment": "WoW Forever 1.60.1 candidate. Hold upload until in-game secure-action smoke test passes."
 }

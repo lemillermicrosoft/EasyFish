@@ -5,6 +5,7 @@
 ## Version: 0.1.0-rc1
 ## IconTexture: Interface\AddOns\EasyFish_Forever\Media\icon.png
 ## SavedVariables: EasyFishForeverDB
+## X-Curse-Project-ID: 1720378
 ## OptionalDeps: EasyFish
 
 Core.lua

@@ -10,7 +10,7 @@ _G.EasyFishForever = EF
 EF.ADDON_NAME = addonName
 EF.VERSION = "0.1.0-rc1"
 EF.INTERFACE = 16001
-EF.FISHING_SPELL_ID = 7620
+EF.FISHING_SPELL_IDS = { 131474, 7620 }
 EF.PREFIX = "|cff33b3ffEasyFish Forever|r"
 
 BINDING_HEADER_EASYFISH_FOREVER = "EasyFish Forever"
@@ -33,6 +33,7 @@ EF.DEFAULTS = {
     bindingKey = "NONE",
     preferredLures = DEFAULT_LURES,
     importedLegacy = false,
+    debug = false,
     buttonPoint = "CENTER",
     buttonX = 0,
     buttonY = -120,
@@ -51,6 +52,7 @@ EF.actionButton = actionButton
 
 actionButton:SetSize(44, 44)
 actionButton:RegisterForClicks("AnyUp")
+actionButton:SetAttribute("useOnKeyDown", false)
 actionButton:SetClampedToScreen(true)
 
 actionButton.icon = actionButton:CreateTexture(nil, "ARTWORK")
@@ -198,13 +200,45 @@ local function availableLure()
     return nil
 end
 
-local function fishingSpell()
-    if C_Spell and C_Spell.GetSpellName then
-        local name = safeCall(C_Spell.GetSpellName, EF.FISHING_SPELL_ID)
-        if name then return name end
+local function knownSpell(spellID)
+    if type(IsPlayerSpell) == "function" then
+        local known = safeCall(IsPlayerSpell, spellID)
+        if known == true then return true end
     end
-    local name = safeCall(GetSpellInfo, EF.FISHING_SPELL_ID)
-    return name or EF.FISHING_SPELL_ID
+    if type(IsSpellKnown) == "function" then
+        local known = safeCall(IsSpellKnown, spellID)
+        if known == true then return true end
+    end
+    if C_SpellBook and type(C_SpellBook.IsSpellInSpellBook) == "function" then
+        local known = safeCall(C_SpellBook.IsSpellInSpellBook, spellID)
+        if known == true then return true end
+    end
+    return false
+end
+
+local function spellName(spellID)
+    if C_Spell and C_Spell.GetSpellName then
+        local name = safeCall(C_Spell.GetSpellName, spellID)
+        if type(name) == "string" and name ~= "" then return name end
+    end
+    local name = safeCall(GetSpellInfo, spellID)
+    if type(name) == "string" and name ~= "" then return name end
+    return nil
+end
+
+local function fishingSpell()
+    -- Forever uses the modern cast action (131474) on some builds while the
+    -- profession entry still resolves as 7620. Only arm an ID the player
+    -- actually knows; otherwise use a localized name and let secure spell
+    -- resolution select the player's castable Fishing action.
+    for _, spellID in ipairs(EF.FISHING_SPELL_IDS) do
+        if knownSpell(spellID) then return spellName(spellID) or spellID, spellID end
+    end
+    for _, spellID in ipairs(EF.FISHING_SPELL_IDS) do
+        local name = spellName(spellID)
+        if name then return name, spellID end
+    end
+    return "Fishing", nil
 end
 
 function EF.DecideAction()
@@ -224,7 +258,9 @@ function EF.DecideAction()
         end
     end
 
-    return "spell", fishingSpell(), "Cast Fishing"
+    local spell, spellID = fishingSpell()
+    EF.resolvedFishingSpellID = spellID
+    return "spell", spell, "Cast Fishing"
 end
 
 local function clearProtectedAttributes()
@@ -341,6 +377,9 @@ local function status()
     local current = EF.currentAction or {}
     say("version " .. EF.VERSION .. ", Interface " .. EF.INTERFACE)
     say("next action: " .. tostring(current[3] or "not prepared"))
+    say("prepared type/value: " .. tostring(current[1] or "none") .. " / " .. tostring(current[2] or "none"))
+    say("resolved Fishing spell ID: " .. tostring(EF.resolvedFishingSpellID or "localized-name fallback"))
+    say("button enabled/shown: " .. tostring(actionButton:IsEnabled()) .. " / " .. tostring(actionButton:IsShown()))
     say("quick binding: " .. tostring(EF.db.bindingKey) .. " (native Key Bindings also supported)")
     say("combat lockdown: " .. ((InCombatLockdown and InCombatLockdown()) and "yes" or "no"))
 end
@@ -353,6 +392,11 @@ SlashCmdList.EASYFISHFOREVER = function(raw)
     if command == "" or command == "options" then openOptions(); return end
     if command == "status" then status(); return end
     if command == "refresh" then EF.RefreshAction(); say("action state refreshed"); return end
+    if command == "debug" then
+        EF.db.debug = not EF.db.debug
+        say("click diagnostics " .. (EF.db.debug and "enabled" or "disabled"))
+        return
+    end
     if command == "import" then
         local ok, message = EF.ImportLegacy()
         say(message)
@@ -366,7 +410,7 @@ SlashCmdList.EASYFISHFOREVER = function(raw)
         return
     end
     if command == "help" then
-        say("/eff options, /eff status, /eff refresh, /eff import, /eff bind <off|alt-f|alt-right|shift-right>")
+        say("/eff options, /eff status, /eff refresh, /eff debug, /eff import, /eff bind <off|alt-f|alt-right|shift-right>")
         say("Plain double-right-click is intentionally unsupported on the restricted client; use a modifier or native Key Bindings.")
         return
     end
@@ -374,6 +418,11 @@ SlashCmdList.EASYFISHFOREVER = function(raw)
 end
 
 actionButton:SetScript("PostClick", function()
+    EF.clickCount = (EF.clickCount or 0) + 1
+    if EF.db and EF.db.debug then
+        local action = EF.currentAction or {}
+        say("click received; attempted " .. tostring(action[1] or "none") .. " / " .. tostring(action[2] or "none"))
+    end
     if C_Timer and C_Timer.After then
         C_Timer.After(0.25, EF.RefreshAction)
         C_Timer.After(1.25, EF.RefreshAction)

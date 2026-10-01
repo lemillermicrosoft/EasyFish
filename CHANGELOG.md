@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-rc1 - 2026-09-30
+## 0.1.0-alpha - 2026-09-30
 
 - Ported EasyFish to a distinct `EasyFish_Forever` Interface 16001 candidate.
 - Retained one-action-per-hardware-click equip, lure, and cast workflow.

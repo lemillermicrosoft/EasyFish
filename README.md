@@ -69,7 +69,7 @@ npm test
 npm run package
 ```
 
-The deterministic candidate is written to `dist/EasyFish_Forever-v0.1.0-rc1.zip`; the ZIP root is `EasyFish_Forever/`.
+The deterministic candidate is written to `dist/EasyFish_Forever-v0.1.0-alpha.zip`; the ZIP root is `EasyFish_Forever/`.
 
 ## Separate Forever product
 

@@ -1,6 +1,6 @@
 # EasyFish Forever port plan
 
-## Completed in 0.1.0-rc1
+## Completed in 0.1.0-alpha
 
 - [x] Preserve original EasyFish git history on a dedicated port branch/worktree.
 - [x] Audit original interaction model, repository license state, GitHub release behavior, and CurseForge metadata.

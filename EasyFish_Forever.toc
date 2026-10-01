@@ -2,7 +2,7 @@
 ## Title: EasyFish Forever
 ## Notes: One-click-per-step fishing helper for WoW Forever.
 ## Author: Lee Miller / EasyFish contributors
-## Version: 0.1.0-rc1
+## Version: 0.1.0-alpha
 ## IconTexture: Interface\AddOns\EasyFish_Forever\Media\icon.png
 ## SavedVariables: EasyFishForeverDB
 ## X-Curse-Project-ID: 1720378

@@ -8,7 +8,7 @@ EF = EF or {}
 _G.EasyFishForever = EF
 
 EF.ADDON_NAME = addonName
-EF.VERSION = "0.1.0-rc1"
+EF.VERSION = "0.1.0-alpha"
 EF.INTERFACE = 16001
 EF.FISHING_SPELL_IDS = { 131474, 7620 }
 EF.PREFIX = "|cff33b3ffEasyFish Forever|r"
